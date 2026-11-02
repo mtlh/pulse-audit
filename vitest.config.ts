@@ -4,7 +4,8 @@ export default defineConfig({
   test: {
     include: ['test/**/*.test.ts'],
     environment: 'node',
-    // Lighthouse flows are heavy; never run two Chrome audits at once.
+    // Keep the default suite deterministic; the Chrome flows opt into
+    // parallel workers in vitest.flows.config.ts.
     fileParallelism: false,
     testTimeout: 240_000,
     hookTimeout: 60_000,

@@ -5,7 +5,9 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Launcher } from 'chrome-launcher';
+import { afterAll, afterEach, beforeAll } from 'vitest';
 import type { PulseConfig, PulseReport } from '../../src/types.js';
+import { startFixture, type FixtureSite } from './fixture.js';
 
 const CLI = fileURLToPath(new URL('../../dist/cli.js', import.meta.url));
 
@@ -96,6 +98,46 @@ export async function makeWorkspace(prefix = 'pulse-flow-'): Promise<string> {
 
 export async function removeWorkspace(dir: string): Promise<void> {
   await rm(dir, { recursive: true, force: true });
+}
+
+export interface FixtureFlow {
+  /** The fixture site, available once the file's beforeAll has run. */
+  readonly site: FixtureSite;
+  /** A temp working directory that is removed after the current test. */
+  workspace(prefix?: string): Promise<string>;
+}
+
+/**
+ * Registers the fixture server and temp-directory cleanup for a flow file.
+ * Call it inside `describe` so each parallel worker gets its own server.
+ */
+export function useFixture(): FixtureFlow {
+  const workspaces: string[] = [];
+  let site: FixtureSite;
+
+  beforeAll(async () => {
+    site = await startFixture();
+  }, 60_000);
+
+  afterAll(async () => {
+    await site.close();
+  });
+
+  afterEach(async () => {
+    site.state.extraViolation = false;
+    await Promise.all(workspaces.splice(0).map(removeWorkspace));
+  });
+
+  return {
+    get site() {
+      return site;
+    },
+    async workspace(prefix = 'pulse-audit-') {
+      const dir = await makeWorkspace(prefix);
+      workspaces.push(dir);
+      return dir;
+    },
+  };
 }
 
 export async function writeConfig(dir: string, config: PulseConfig, name = '.pulse.json'): Promise<void> {

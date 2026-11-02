@@ -162,7 +162,11 @@ pulse-audit/
         ├── fixture.ts             deterministic local site
         ├── helpers.ts             CLI runner, temp dirs, budgets
         ├── init.test.ts           no-Chrome init/error flows
-        ├── audit.e2e.test.ts      pass/fail/baseline/init --from/desktop
+        ├── audit.e2e.test.ts      pass/fail outputs and --no-fail
+        ├── baseline.e2e.test.ts   baseline, deltas and new axe debt
+        ├── init-from.e2e.test.ts  derive budgets from a measured page
+        ├── json.e2e.test.ts       --json and --fail-on
+        ├── desktop.e2e.test.ts    desktop preset
         └── package.e2e.test.ts    npm pack + install + audit
 ```
 
@@ -175,7 +179,7 @@ cd <pulse-audit checkout>
 npm install
 npm run typecheck
 npm test          # unit + no-Chrome flows; Chrome flows skip
-npm run test:e2e  # fixture audits + packed install (~4 min)
+npm run test:e2e  # fixture audits + packed install (~2 min)
 npm run build
 npm run battle-test  # live portfolio sequence (~3.5 min)
 ```
@@ -394,11 +398,14 @@ from 'chrome-launcher'`.
 
 - `npm test` builds, then runs unit tests and no-Chrome flows. Chrome/package files are skipped
   by `describe.skipIf`.
-- `npm run test:e2e` sets `PULSE_E2E=1` and `PULSE_PACKAGE=1`, builds, and runs `test/flows`.
-  It serialises files because each fixture audit launches Chrome.
+- `npm run test:e2e` sets `PULSE_E2E=1` and `PULSE_PACKAGE=1`, builds, and runs `test/flows`
+  through `vitest.flows.config.ts`. Flow files are split by scenario and run in up to four
+  parallel workers, so a slow audit does not block the rest of the suite.
 - `test/flows/fixture.ts` serves a deterministic page entirely from memory. Missing alt text,
   low contrast, a 160 KB SVG hero and a 220 KB script give stable LCP, CLS, weight and axe
   signals with no external requests.
+- Lighthouse full-page screenshots are disabled (`disableFullPageScreenshot`) because Pulse never
+  reads them. That saves about a second per run and leaves metrics and axe results unchanged.
 - `npm run battle-test` runs `init --from`, baseline update/compare and a forced regression
   against `https://mtlh.vercel.app/`. It writes `.pulse/battle-test.md`.
 - Flow tests invoke the built `dist/cli.js` in a temp working directory, so they exercise the
