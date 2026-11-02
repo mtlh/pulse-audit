@@ -6,7 +6,7 @@ to verify it.
 
 - **Location:** `C:\Users\matth\Downloads\pulse-audit`
 - **Owner:** Matthew Harvey (`github.com/mtlh`)
-- **Status:** v0.1.0, published on npm; npx-first, no composite action
+- **Status:** v0.1.0, published on npm as `@mtlh/pulse-audit`; npx-first, no composite action
 - **Git:** `main`, pushed to `github.com/mtlh/pulse-audit`, tagged `v0.1.0`
 - **Related portfolio:** `C:\Users\matth\Downloads\PortfolioV2`
 
@@ -19,7 +19,7 @@ N Lighthouse runs, and compares the result to a baseline from the default branch
 run only when a metric breaches its absolute budget **and** regresses beyond tolerance, or when
 a new accessibility violation appears. Output is a terminal table, a JSON file, a Markdown
 summary, and one self-contained HTML report. It is a plain CLI, so any CI runner can call it
-with `npx pulse-audit`; a missing baseline is not fatal, and the exit code is non-zero on
+with `npx @mtlh/pulse-audit`; a missing baseline is not fatal, and the exit code is non-zero on
 failure.
 
 The differentiator is the **workflow**, not the measurement: baseline deltas, adoption-friendly
@@ -38,8 +38,8 @@ a11y gating, and a report that diagnoses instead of scoring.
    load offline and stay under ~100 KB.
 5. **Ratchet semantics.** A page that is already over budget but improving does not fail.
    Enforce absolute compliance separately, later, behind `strict`.
-6. **npm package name is `pulse-audit`; binary is `pulse`.** `pulse`, `pulse-ci` and
-   `pagepulse` are taken on npm.
+6. **npm package name is `@mtlh/pulse-audit`; binary is `pulse`.** `pulse`, `pulse-ci` and
+   `pagepulse` were taken unscoped, so the package ships under the `@mtlh` scope.
 7. **Ship the CLI through npx; no composite action.** The owner explicitly chose the npx
    workflow as the distribution path. Do not add a Marketplace action unless asked again.
 
@@ -266,7 +266,7 @@ Keep the fixture deterministic: no external requests, fixed dimensions.
 
 ### Step 6 — GitHub Action (dropped)
 
-The owner chose `npx pulse-audit` as the only delivery path. Do not ship a composite action or
+The owner chose `npx @mtlh/pulse-audit` as the only delivery path. Do not ship a composite action or
 Marketplace release. The old action file and its contract test were removed. CI for this repo
 still runs `npm run test:e2e`; consumers call the CLI from their own runner.
 
@@ -277,7 +277,7 @@ still runs `npm run test:e2e`; consumers call the CLI from their own runner.
 - Add `repository`, `homepage`, `bugs`, `keywords` to `package.json`.
 - `npm publish --provenance --access public`.
 - Tag `v0.1.0`; Marketplace release for the action.
-- **Acceptance:** `npx pulse-audit@0.1.0 --version` works on a clean machine.
+- **Acceptance:** `npx @mtlh/pulse-audit@0.1.0 --version` works on a clean machine.
 
 ### Step 8 — Dogfood
 
@@ -327,8 +327,8 @@ still runs `npm run test:e2e`; consumers call the CLI from their own runner.
 
 ### Distribution
 
-- The package is published as `pulse-audit`; the binary is `pulse`. Consumers should run
-  `npx pulse-audit@0.1.0 ...`.
+- The package is published as `@mtlh/pulse-audit`; the binary is `pulse`. Consumers should run
+  `npx @mtlh/pulse-audit@0.1.0 ...`.
 - No composite action ships. Keep it that way unless the owner asks for one again.
 - A missing baseline is not fatal: the first run records inherited debt and `--update-baseline`
   seeds it. Pull-request runs compare against the saved file.
@@ -365,9 +365,9 @@ still runs `npm run test:e2e`; consumers call the CLI from their own runner.
 
 ### Naming
 
-- `pulse` and `pulse-ci` are taken on npm. `pulse-audit` is available (checked 2026-11-02).
+- The public package is `@mtlh/pulse-audit` (the unscoped `pulse-audit` was not used).
 - Binary name `pulse` is fine within the package, but a global install can collide with other
-  tools. Document `npx pulse-audit` as the primary invocation.
+  tools. Document `npx @mtlh/pulse-audit` as the primary invocation.
 
 ---
 
@@ -409,7 +409,7 @@ self-host the GitHub chart, then re-baseline and tighten `requests` from 90 to ~
 
 > You are continuing `pulse-audit` at `C:\Users\matth\Downloads\pulse-audit`. Read
 > `HANDOFF.md` first. Steps 1–4 are complete and v0.1.0 is published on npm. The delivery path is
-> `npx pulse-audit`; there is no composite action. `npm run test:e2e` runs the 13 flow tests
+> `npx @mtlh/pulse-audit`; there is no composite action. `npm run test:e2e` runs the 13 flow tests
 > (including a packed install) and `npm run battle-test` exercises the live portfolio. Your next
 > jobs are Step 5 (flakiness/variance) and Step 7 (README GIF, tag maintenance). Use
 > `pulse init --from <url>` as the primary adoption path: it measures the page and writes
@@ -436,7 +436,7 @@ node dist/cli.js init --from https://mtlh.vercel.app --force
 node dist/cli.js audit --runs 1 --update-baseline
 node dist/cli.js audit --runs 3
 npm pack --dry-run
-npx pulse-audit@0.1.0 --version
+npx @mtlh/pulse-audit@0.1.0 --version
 ```
 
 Reference trace tooling in the portfolio:

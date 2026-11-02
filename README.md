@@ -6,8 +6,8 @@ Pulse audits a deployed URL, compares the result to your last green `main` build
 the pull request only when something got worse — with a report that names the element,
 request or axe rule responsible.
 
-> **Status: v0.1.0.** Published on npm as `pulse-audit`. The Lighthouse path, baseline flow,
-> HTML report, CLI flows and packed install are verified locally. Use it through `npx`.
+> **Status: v0.1.0.** Published on npm as `@mtlh/pulse-audit`. The Lighthouse path, baseline
+> flow, HTML report, CLI flows and packed install are verified locally. Use it through `npx`.
 
 ## Why another performance tool
 
@@ -29,13 +29,13 @@ and focuses on:
 
 ```bash
 # 1. Create a config, measured from the page you care about
-npx pulse-audit@0.1.0 init --from https://example.com
+npx @mtlh/pulse-audit@0.1.0 init --from https://example.com
 
 # 2. First run establishes the baseline
-npx pulse-audit@0.1.0 audit --update-baseline
+npx @mtlh/pulse-audit@0.1.0 audit --update-baseline
 
 # 3. Verify and open the report
-npx pulse-audit@0.1.0 audit
+npx @mtlh/pulse-audit@0.1.0 audit
 # .pulse/report.html
 ```
 
@@ -113,7 +113,7 @@ result.
 Pulse is a CLI, so it works in any runner that has Node and Chrome:
 
 ```yaml
-- run: npx pulse-audit@0.1.0 audit --runs 3 --summary "$GITHUB_STEP_SUMMARY" --github-output
+- run: npx @mtlh/pulse-audit@0.1.0 audit --runs 3 --summary "$GITHUB_STEP_SUMMARY" --github-output
 ```
 
 On the default branch, add `--update-baseline` and keep `.pulse/baseline.json` between runs

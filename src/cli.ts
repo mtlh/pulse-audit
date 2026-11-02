@@ -126,9 +126,9 @@ program
     console.log(`${pc.green('created')} ${options.out}`);
     console.log('');
     console.log('Next:');
-    console.log(`  1. ${pc.bold('npx pulse audit --update-baseline')}  (first run establishes the baseline)`);
+    console.log(`  1. ${pc.bold('npx @mtlh/pulse-audit audit --update-baseline')}  (first run establishes the baseline)`);
     console.log(`  2. Review ${pc.bold('.pulse/report.html')} and tighten the budgets`);
-    console.log(`  3. Run ${pc.bold('npx pulse-audit audit')} in CI and keep the baseline`);
+    console.log(`  3. Run ${pc.bold('npx @mtlh/pulse-audit audit')} in CI and keep the baseline`);
   });
 
 program

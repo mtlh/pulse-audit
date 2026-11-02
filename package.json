@@ -1,5 +1,5 @@
 {
-  "name": "pulse-audit",
+  "name": "@mtlh/pulse-audit",
   "version": "0.1.0",
   "description": "Performance, accessibility and page-weight budgets that survive CI.",
   "type": "module",

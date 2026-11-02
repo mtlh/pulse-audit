@@ -71,7 +71,7 @@ describe.skipIf(!enabled || !chrome)('user flow: install the packed package', ()
     );
     expect(installed.code).toBe(0);
 
-    const packageCli = path.join(consumer, 'node_modules', 'pulse-audit', 'dist', 'cli.js');
+    const packageCli = path.join(consumer, 'node_modules', '@mtlh', 'pulse-audit', 'dist', 'cli.js');
     const binShim = path.join(
       consumer,
       'node_modules',
