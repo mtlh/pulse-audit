@@ -1,0 +1,448 @@
+# Handoff — Pulse
+
+You are picking up `pulse-audit`, a CLI package that gates performance, accessibility and page
+weight in CI. This document is the brief: what exists, what is decided, what is left, and how
+to verify it.
+
+- **Location:** `C:\Users\matth\Downloads\pulse-audit`
+- **Owner:** Matthew Harvey (`github.com/mtlh`)
+- **Status:** v0.1.0, published on npm; npx-first, no composite action
+- **Git:** `main`, pushed to `github.com/mtlh/pulse-audit`, tagged `v0.1.0`
+- **Related portfolio:** `C:\Users\matth\Downloads\PortfolioV2`
+
+---
+
+## 1. The product in one paragraph
+
+`pulse audit` loads a URL in headless Chrome under a fixed mobile profile, takes the median of
+N Lighthouse runs, and compares the result to a baseline from the default branch. It fails the
+run only when a metric breaches its absolute budget **and** regresses beyond tolerance, or when
+a new accessibility violation appears. Output is a terminal table, a JSON file, a Markdown
+summary, and one self-contained HTML report. It is a plain CLI, so any CI runner can call it
+with `npx pulse-audit`; a missing baseline is not fatal, and the exit code is non-zero on
+failure.
+
+The differentiator is the **workflow**, not the measurement: baseline deltas, adoption-friendly
+a11y gating, and a report that diagnoses instead of scoring.
+
+---
+
+## 2. Do not relitigate these decisions
+
+1. **Do not rebuild Lighthouse.** It already collects LCP, CLS, TBT, the trace, network
+   requests and axe results. Pulse is the comparison + reporting layer. A custom CDP collector
+   exists in the portfolio (`perf/cdp-trace.mjs`) but is not the engine here.
+2. **Baseline deltas, not absolute scores.** Lighthouse scores are noisy on shared CI runners.
+3. **Median of N, warm-up discarded.** Default N = 3. Allow 5.
+4. **The report is a single HTML file.** No server, no account, no external assets. It must
+   load offline and stay under ~100 KB.
+5. **Ratchet semantics.** A page that is already over budget but improving does not fail.
+   Enforce absolute compliance separately, later, behind `strict`.
+6. **npm package name is `pulse-audit`; binary is `pulse`.** `pulse`, `pulse-ci` and
+   `pagepulse` are taken on npm.
+7. **Ship the CLI through npx; no composite action.** The owner explicitly chose the npx
+   workflow as the distribution path. Do not add a Marketplace action unless asked again.
+
+---
+
+## 3. Current state
+
+| Area | State | Notes |
+| --- | --- | --- |
+| `package.json` / TS / tsup / vitest | Done | Node 20+, ESM |
+| Config schema + defaults | Done | zod, rejects unknown keys |
+| `init` command | **Verified** | defaults or measured budgets via `--from` |
+| Lighthouse runner | **Verified (median + warm-up)** | Lighthouse 12.8.2, live portfolio audit; N measured runs, 1 warm-up discarded |
+| LHR extraction | **Verified** | LCP element, request weights and axe nodes checked |
+| Compare / budget logic | **Verified (live + flows)** | unit tested and exercised by the CLI flows |
+| Baseline read/write + comparability | **Verified (live)** | refuses cross-preset/version/run-count compares |
+| Terminal reporter | Done | ANSI colour |
+| JSON reporter | Done | |
+| HTML reporter | **Verified** | self-contained, no JS; checked at 390 and 1280 px |
+| Markdown summary | Done | for `$GITHUB_STEP_SUMMARY` |
+| GitHub Action | **Dropped** | owner chose npx/CLI as the delivery path |
+| Unit tests | Done | pure functions + flow contracts |
+| Integration tests / fixture site | **Verified** | deterministic fixture + 13 CLI flows; `PULSE_E2E=1` |
+| Docs | Updated | budgets, action, quick start, test commands |
+| npm publish | Not done | |
+| PR comment | Not done | step summary only |
+
+`npm install` has been run and `package-lock.json` is present. `npm run typecheck`,
+`npm test` (32 tests; 6 Chrome/package flows skipped) and `npm run build` all pass.
+`npm run test:e2e` runs the 13 flow tests, including fixture audits and a packed install.
+`npm run battle-test` exercises the live portfolio through the CLI sequence.
+
+---
+
+## 4. Repo map
+
+```
+pulse-audit/
+├── .pulse.json                    dogfood config for mtlh.vercel.app
+├── docs/
+│   └── budgets.md                 pass/fail semantics
+├── src/
+│   ├── cli.ts                     init (incl. --from) + audit
+│   ├── config.ts                  schema, defaults, measured budgets
+│   ├── runner.ts                  chrome-launcher + lighthouse, median pick
+│   ├── extract.ts                 LHR -> AuditResult
+│   ├── compare.ts                 pure budget evaluation
+│   ├── report.ts                  ReportEntry assembly
+│   ├── baseline.ts                read/write/comparable/merge
+│   ├── format.ts                  ms/bytes/score/count formatting + HTML escape
+│   ├── reporters/
+│   │   ├── terminal.ts
+│   │   ├── json.ts
+│   │   ├── html.ts                renderHtml + writeHtmlReport
+│   │   └── summary.ts             Markdown for job summary
+│   └── index.ts                   public API
+├── scripts/
+│   ├── run-e2e.mjs                builds, then runs test/flows
+│   └── battle-test.mjs            live portfolio sequence
+└── test/
+    ├── compare.test.ts
+    ├── config.test.ts
+    ├── html.test.ts
+    ├── median.test.ts
+    ├── median-run.test.ts
+    └── flows/
+        ├── fixture.ts             deterministic local site
+        ├── helpers.ts             CLI runner, temp dirs, budgets
+        ├── init.test.ts           no-Chrome init/error flows
+        ├── audit.e2e.test.ts      pass/fail/baseline/init --from/desktop
+        └── package.e2e.test.ts    npm pack + install + audit
+```
+
+---
+
+## 5. Setup and first verification
+
+```powershell
+cd C:\Users\matth\Downloads\pulse-audit
+npm install
+npm run typecheck
+npm test          # unit + no-Chrome flows; Chrome flows skip
+npm run test:e2e  # fixture audits + packed install (~4 min)
+npm run build
+npm run battle-test  # live portfolio sequence (~3.5 min)
+```
+
+Then, against the live portfolio:
+
+```powershell
+node dist/cli.js init --from https://mtlh.vercel.app --force
+node dist/cli.js audit --runs 1 --update-baseline
+node dist/cli.js audit --runs 1
+```
+
+Expected on the first run:
+
+- Chrome launches headless; no crash on Windows.
+- Terminal table shows LCP / CLS / TBT / JS / Images / Requests / a11y.
+- `.pulse/report.json`, `.pulse/report.html`, `.pulse/baseline.json` exist.
+- The report opens offline and is under 100 KB.
+
+**Verified at scaffold time (2026-11-02, one run, mobile):**
+
+| Metric | Value |
+| --- | --- |
+| LCP | 1.83 s |
+| CLS | 0.001 |
+| TBT | 66 ms |
+| JavaScript | 5.6 KB |
+| Images | 60.6 KB |
+| Requests | 42 |
+| A11y | 11 nodes, all `color-contrast` |
+
+The report was 14.9 KB. The LCP element resolved to
+`body.antialiased > main#main-content > section.bg-cover`, which confirms the extractor's
+nested-details path works. The 11 contrast nodes are a real finding worth checking against the
+portfolio's claimed a11y work.
+
+Latest dogfood run (2026-11-02, `--runs 3` + warm-up, `--update-baseline`): LCP 1.53 s,
+CLS 0, TBT 0 ms, JavaScript 6.5 KB, Images 59.8 KB, 44 requests, 10 a11y nodes. All budgets
+passed, exit 0, report 15.2 KB.
+
+The run used `--runs 1`; the median path was later verified with `--runs 3` plus a discarded
+warm-up. Extraction was checked against the raw LHR for LCP, CLS, TBT, JS bytes, image bytes
+and request count on three runs: exact match on all six.
+
+If Lighthouse fails, check in this order:
+
+1. `chrome-launcher` finds Chrome (`CHROME_PATH`).
+2. `lighthouse()` flags: `port`, `onlyCategories`, `formFactor`, `screenEmulation`,
+   `throttling`, `throttlingMethod`.
+3. The LHR audit IDs in `extract.ts` for the installed Lighthouse version. Run:
+   `node -e "import('lighthouse').then(async m=>{const r=await m.default('https://example.com',{output:'json',onlyCategories:['performance','accessibility']});console.log(Object.keys(r.lhr.audits).filter(k=>k.includes('largest')||k.includes('layout')).join('\n'))})"`
+   (this starts its own Chrome; use a scratch script if it is awkward).
+4. `largest-contentful-paint-element` details shape changed between majors. The extractor
+   handles nested and flat; add the new shape if needed.
+
+---
+
+## 6. Decisions still open (ask the human before large changes)
+
+1. **Strict mode.** Should absolute budgets always fail, even when improving? Proposed:
+   `"strict": true` at the config root, default false.
+2. **Multi-URL PR runs.** Current default audits every URL sequentially. Prefer one job per
+   URL at scale.
+3. **Desktop preset.** Implemented in the runner; no baseline story yet. Desktop and mobile
+   need separate baselines (the comparability check enforces this).
+4. **History storage.** v0 uses a workflow artifact. A trend chart needs durable storage
+   (`gh-pages` or a small JSON in a `pulse-history` branch). Do not add a database.
+5. **PR comment.** The step summary is enough for v0. Add Octokit + a hidden marker when
+   asked.
+
+---
+
+## 7. Build order and acceptance criteria
+
+Work top to bottom. Each step should leave `npm run typecheck && npm test` green.
+
+### Step 1 — Make the Lighthouse path real
+
+- ~~Run one live audit.~~
+- Run a second audit and confirm the median path (use `--runs 3`).
+- Fix any type errors and flag shape issues.
+- Confirm `extractResult` returns sensible numbers (compare against the Lighthouse JSON:
+  LCP, CLS, TBT, JS bytes, request count).
+- **Acceptance:** two consecutive `--runs 1` audits of the same URL produce a report without
+  throwing, and LCP is within ~20% of the Lighthouse JSON value. *(Confirmed 2026-11-02:
+  1.53 s and 1.53 s; runs=3 and the warm-up path also verified)*
+
+### Step 2 — Verify the HTML report
+
+- Open `.pulse/report.html` in Chrome at 390 px and 1280 px.
+- Check: no horizontal scroll, status pills correct, requests bars proportional, long URLs
+  ellipsized, axe selectors escaped.
+- **Acceptance:** report < 100 KB, no console errors, readable at 390 px. *(Verified
+  2026-11-02: 14.9 KB, zero console errors, no horizontal scroll at 390 or 1280 px. A long
+  selector previously forced 602 px of scroll; fixed with `minmax(0, 1fr)` and wrapping.
+  Escaping is covered by `test/html.test.ts`.)*
+
+### Step 3 — Baseline flow
+
+- `audit --update-baseline`, then edit a budget to force a failure, then `audit`.
+- Confirm exit code 1 and a readable delta.
+- Confirm a baseline with a different `runs` value is ignored with a warning.
+- **Acceptance:** pass/fail/exit-code matrix in `docs/budgets.md` is true. *(Verified
+  2026-11-02 with a temporary config: first `--update-baseline` exits 0, the next run reports
+  deltas and exits 0, a lowered baseline exits 1 with `↳ regressed +38.7% vs baseline`, an
+  over-max-but-improving metric exits 0 with `↳ over max … but not a regression`, and a
+  different `--runs` count warns and ignores the baseline. Failures, warnings and ratchet
+  passes now print their reason in the terminal, HTML and Markdown reports.)*
+
+### Step 4 — Fixture site + integration tests
+
+Create `test/fixtures/site/` with:
+
+- a large hero image that is *not* preloaded (late LCP),
+- an element injected after load that shifts layout (CLS),
+- an `<img>` without `alt` and a low-contrast paragraph (axe),
+- a ~200 KB script (weight budget).
+
+Serve it from a tiny Node server in the test. Run one audit and assert the report JSON.
+Keep the fixture deterministic: no external requests, fixed dimensions.
+
+- **Acceptance:** `npm test` covers extraction, compare and an end-to-end audit behind
+  `PULSE_E2E=1` so CI without Chrome can skip it. *(Verified 2026-11-02. The fixture lives in
+  `test/flows/fixture.ts` and generates the heavy assets in memory. Measured: LCP 2.40 s on
+  `img.hero`, CLS 0.075, JS 220 KB, images 161 KB, 4 requests, 3 axe nodes. `test/flows/`
+  covers init, pass/fail/`--no-fail`, baseline seeding, deltas, run-count mismatch, new axe
+  debt, `init --from`, desktop and a packed install. 13 flow tests pass with
+  `npm run test:e2e`; 5 no-Chrome flow tests run in `npm test`.)*
+
+### Step 5 — Flakiness
+
+- Run the same URL 10 times on CI and record variance per metric.
+- Add a note to the docs for metrics that exceed 10% variance.
+- Consider `runs: 5` guidance for GitHub-hosted runners.
+- **Acceptance:** zero false failures across 20 consecutive runs of an unchanged page.
+- **Local observations (2026-11-02):** live portfolio LCP stayed in 1.51–1.66 s across runs
+  (about 5% spread); TBT ranged 0–133 ms but is already `warn`; requests, JS, images and a11y
+  node count were stable. The fixture produced the expected pass/fail outcome throughout the
+  13 flow tests (~20 Lighthouse runs). No unexpected pass/fail flips were observed. A real
+  GitHub-hosted runner sample is still needed for the 20-run acceptance.
+
+### Step 6 — GitHub Action (dropped)
+
+The owner chose `npx pulse-audit` as the only delivery path. Do not ship a composite action or
+Marketplace release. The old action file and its contract test were removed. CI for this repo
+still runs `npm run test:e2e`; consumers call the CLI from their own runner.
+
+### Step 7 — Docs and packaging
+
+- README GIF: failing audit → failing PR → report.
+- `npm pack --dry-run`; confirm only `dist`, `README.md` and `LICENSE` ship.
+- Add `repository`, `homepage`, `bugs`, `keywords` to `package.json`.
+- `npm publish --provenance --access public`.
+- Tag `v0.1.0`; Marketplace release for the action.
+- **Acceptance:** `npx pulse-audit@0.1.0 --version` works on a clean machine.
+
+### Step 8 — Dogfood
+
+- Add `.github/workflows/pulse.yml` to `PortfolioV2` calling the published action.
+- Baseline `main`, then open a throwaway PR that adds a large image.
+- Record the before/after numbers for the portfolio case study.
+- **Acceptance:** the portfolio PR fails for the right reason, and the report explains why.
+
+---
+
+## 8. Technical notes and traps
+
+### Lighthouse
+
+- Lighthouse 12 is ESM. `import lighthouse from 'lighthouse'` and `import * as chromeLauncher
+  from 'chrome-launcher'`.
+- `lighthouse()` returns `RunnerResult | undefined`; guard it.
+- Use one Chrome instance for all runs, then `chrome.kill()` in `finally`.
+- `onlyCategories: ['performance', 'accessibility']` keeps runs faster; do not enable SEO/best
+  practices.
+- The `network-requests` audit items expose `transferSize` (compressed, what users download)
+  and `resourceSize` (uncompressed). Budgets use `transferSize`.
+- `throttlingMethod: 'simulate'` is the stable CI choice. Do not use `devtools` throttling for
+  baselines.
+- LCP element lives under `audits['largest-contentful-paint-element'].details.items[0].items[0].node`
+  in current versions. The extractor also checks the flat shape.
+- Axe results are already in the accessibility category. `scoreDisplayMode` values to ignore:
+  `notApplicable`, `manual`, `informative`. Count `score < 1` audits as violations.
+
+### Comparison
+
+- `regression` is a percentage. A metric fails on regression only if `max` is also breached
+  **or** there is no baseline. See `docs/budgets.md`.
+- `tbt` defaults to `warn` because CI variance is high.
+- A11y delta is keyed `${ruleId}::${selector}`. Two identical selectors in different contexts
+  collapse; add `failureSummary` as a third key if that becomes a real false negative.
+- `maxNew` is only gated when a comparable baseline exists. Before that, existing violations
+  count against `maxViolations` but not against `maxNew`, so establishing a baseline does not
+  fail on inherited debt. A present-but-incomparable baseline behaves like no baseline.
+
+### Baseline
+
+- Store `preset`, `runs`, `lighthouseVersion` in every result.
+- `comparableBaseline()` returns null on mismatch. Never compare across Lighthouse majors.
+- Baseline file: `{ version: 1, results: { [url]: AuditResult } }`.
+- Do not commit `.pulse/`; it is gitignored.
+
+### Distribution
+
+- The package is published as `pulse-audit`; the binary is `pulse`. Consumers should run
+  `npx pulse-audit@0.1.0 ...`.
+- No composite action ships. Keep it that way unless the owner asks for one again.
+- A missing baseline is not fatal: the first run records inherited debt and `--update-baseline`
+  seeds it. Pull-request runs compare against the saved file.
+- `--github-output` writes `report-path` and `failed` to `$GITHUB_OUTPUT`, which works in any
+  GitHub Actions job without a custom action.
+
+### Testing
+
+- `npm test` builds, then runs unit tests and no-Chrome flows. Chrome/package files are skipped
+  by `describe.skipIf`.
+- `npm run test:e2e` sets `PULSE_E2E=1` and `PULSE_PACKAGE=1`, builds, and runs `test/flows`.
+  It serialises files because each fixture audit launches Chrome.
+- `test/flows/fixture.ts` serves a deterministic page entirely from memory. Missing alt text,
+  low contrast, a 160 KB SVG hero and a 220 KB script give stable LCP, CLS, weight and axe
+  signals with no external requests.
+- `npm run battle-test` runs `init --from`, baseline update/compare and a forced regression
+  against `https://mtlh.vercel.app/`. It writes `.pulse/battle-test.md`.
+- Flow tests invoke the built `dist/cli.js` in a temp working directory, so they exercise the
+  same path as an installed user. `test/flows/package.e2e.test.ts` additionally runs
+  `npm pack`, installs the tarball, and audits through the installed package.
+
+### Windows
+
+- `chrome-launcher` usually finds Chrome. If not, set `CHROME_PATH` to
+  `C:\Program Files\Google\Chrome\Application\chrome.exe`.
+- The CLI writes `.pulse/` relative to the current directory.
+
+### Report
+
+- Inline everything. No CDN, no fonts, no chart library.
+- Escape every value that came from the audited page (URLs, selectors, snippets). `escapeHtml`
+  in `format.ts`.
+- The report should pass its own budget: < 100 KB, no layout shift, system fonts.
+
+### Naming
+
+- `pulse` and `pulse-ci` are taken on npm. `pulse-audit` is available (checked 2026-11-02).
+- Binary name `pulse` is fine within the package, but a global install can collide with other
+  tools. Document `npx pulse-audit` as the primary invocation.
+
+---
+
+## 9. Dogfood data from the portfolio
+
+Measured with `PortfolioV2/perf/cdp-trace.mjs` on 2026-11-02: mobile, 4x CPU throttle, 3G.
+
+| Metric | Value | Note |
+| --- | --- | --- |
+| LCP | 1.33 s | hero CSS background image; late discovery |
+| CLS | 0.0012 | already excellent |
+| Long task | 190 ms at 1.68 s | one main-thread block remains |
+| Requests | 81 | ~27 individual skill-icon SVGs |
+| Third party | `ghchart.rshah.org` at 752 ms TTFB | on the critical path |
+| HTML / CSS / router JS | 15.5 KB / 19.3 KB / 5.6 KB | base is lean |
+
+Use these as the starting point for `.pulse.json` (already seeded) and the case study. Likely
+fixes: `<img fetchpriority="high">` + preload for the hero, sprite/inline the skill icons,
+self-host the GitHub chart, then re-baseline and tighten `requests` from 90 to ~55.
+
+---
+
+## 10. Definition of done for the scaffold → v0.1
+
+- [x] `npm install && npm run typecheck && npm test && npm run build` all pass.
+- [x] A live audit of `https://mtlh.vercel.app/` produces a report (runs=1).
+- [x] A 3-run audit exercises the median path.
+- [x] The fixture site proves a pass and a fail with the expected exit code.
+- [x] HTML report works offline at 390 px and 1280 px, under 100 KB.
+- [ ] No false failures across 20 identical CI runs.
+- [x] No composite action; npx is the delivery path.
+- [ ] README has a working quick start and a GIF.
+- [x] `npm pack` is clean (dist, README, LICENSE only); published on npm; tagged `v0.1.0`.
+- [ ] PortfolioV2 runs the action and has before/after numbers.
+
+---
+
+## 11. Copy-paste brief for the next agent
+
+> You are continuing `pulse-audit` at `C:\Users\matth\Downloads\pulse-audit`. Read
+> `HANDOFF.md` first. Steps 1–4 are complete and v0.1.0 is published on npm. The delivery path is
+> `npx pulse-audit`; there is no composite action. `npm run test:e2e` runs the 13 flow tests
+> (including a packed install) and `npm run battle-test` exercises the live portfolio. Your next
+> jobs are Step 5 (flakiness/variance) and Step 7 (README GIF, tag maintenance). Use
+> `pulse init --from <url>` as the primary adoption path: it measures the page and writes
+> minimums with headroom. Keep `npm run typecheck`, `npm test` and `npm run test:e2e` green.
+> Report exact commands run and any new budget defaults.
+>
+> The package's purpose is to be the one central place where a team defines minimum performance,
+> weight and accessibility, and one command that verifies them. Prefer changes that make the
+> config clearer and the pass/fail reason more obvious over new measurement features.
+
+---
+
+## 12. Useful commands
+
+```powershell
+npm install
+npm run typecheck
+npm test
+npm run test:e2e
+npm run battle-test
+npm run build
+node dist/cli.js --help
+node dist/cli.js init --from https://mtlh.vercel.app --force
+node dist/cli.js audit --runs 1 --update-baseline
+node dist/cli.js audit --runs 3
+npm pack --dry-run
+npx pulse-audit@0.1.0 --version
+```
+
+Reference trace tooling in the portfolio:
+
+```powershell
+cd C:\Users\matth\Downloads\PortfolioV2
+node perf/cdp-trace.mjs
+node perf/analyze-mainthread.mjs
+```

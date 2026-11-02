@@ -1,0 +1,72 @@
+{
+  "name": "pulse-audit",
+  "version": "0.1.0",
+  "description": "Performance, accessibility and page-weight budgets that survive CI.",
+  "type": "module",
+  "license": "MIT",
+  "author": "Matthew Harvey",
+  "homepage": "https://github.com/mtlh/pulse-audit#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/mtlh/pulse-audit.git"
+  },
+  "bugs": {
+    "url": "https://github.com/mtlh/pulse-audit/issues"
+  },
+  "keywords": [
+    "performance",
+    "lighthouse",
+    "budgets",
+    "accessibility",
+    "web-vitals",
+    "page-weight",
+    "ci"
+  ],
+  "bin": {
+    "pulse": "./dist/cli.js"
+  },
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "build": "tsup",
+    "dev": "tsx src/cli.ts",
+    "pretest": "npm run build",
+    "test": "vitest run",
+    "pretest:flows": "npm run build",
+    "test:flows": "vitest run test/flows",
+    "test:e2e": "node scripts/run-e2e.mjs",
+    "prebattle-test": "npm run build",
+    "battle-test": "node scripts/battle-test.mjs",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit",
+    "format": "prettier --write .",
+    "prepublishOnly": "npm run build"
+  },
+  "dependencies": {
+    "chrome-launcher": "^1.2.0",
+    "commander": "^13.1.0",
+    "lighthouse": "^12.6.0",
+    "picocolors": "^1.1.1",
+    "zod": "^3.24.2"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.0",
+    "prettier": "^3.5.0",
+    "tsup": "^8.3.6",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.3",
+    "vitest": "^3.0.5"
+  }
+}

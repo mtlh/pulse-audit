@@ -1,0 +1,17 @@
+{
+  "preset": "mobile",
+  "runs": 3,
+  "urls": ["https://mtlh.vercel.app/"],
+  "budgets": {
+    "lcp": { "max": 2500, "regression": 10 },
+    "cls": { "max": 0.05, "regression": 20 },
+    "tbt": { "max": 200, "severity": "warn" },
+    "js": { "max": 250000, "regression": 10 },
+    "images": { "max": 600000, "regression": 10 },
+    "requests": { "max": 90, "regression": 10 },
+    "a11y": { "maxViolations": 12, "maxNew": 0 }
+  },
+  "report": {
+    "outDir": ".pulse"
+  }
+}
