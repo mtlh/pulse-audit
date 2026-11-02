@@ -1,49 +1,17 @@
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
-import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
-import { baselineKey } from '../../src/baseline.js';
-import type { BaselineFile, PulseConfig, PulseReport } from '../../src/types.js';
-import { startFixture, type FixtureSite } from './fixture.js';
-import {
-  chromeAvailable,
-  makeWorkspace,
-  passingConfig,
-  readJson,
-  readReport,
-  removeWorkspace,
-  runCli,
-  writeConfig,
-} from './helpers.js';
+import { describe, expect, it } from 'vitest';
+import { chromeAvailable, passingConfig, readReport, runCli, useFixture, writeConfig } from './helpers.js';
 
 const enabled = process.env.PULSE_E2E === '1';
 const chrome = chromeAvailable();
 
 describe.skipIf(!enabled || !chrome)('user flow: audit a site against minimums', () => {
-  let site: FixtureSite;
-  const workspaces: string[] = [];
-
-  beforeAll(async () => {
-    site = await startFixture();
-  }, 60_000);
-
-  afterAll(async () => {
-    await site.close();
-  });
-
-  afterEach(async () => {
-    site.state.extraViolation = false;
-    await Promise.all(workspaces.splice(0).map(removeWorkspace));
-  });
-
-  async function workspace(): Promise<string> {
-    const dir = await makeWorkspace('pulse-audit-');
-    workspaces.push(dir);
-    return dir;
-  }
+  const flow = useFixture();
 
   it('passes a page that meets every minimum and writes every output', async () => {
-    const dir = await workspace();
-    await writeConfig(dir, passingConfig(site.url));
+    const dir = await flow.workspace();
+    await writeConfig(dir, passingConfig(flow.site.url));
     const githubOutput = path.join(dir, 'github-output.txt');
 
     const result = await runCli(['audit', '--summary', 'summary.md', '--github-output'], {
@@ -96,8 +64,8 @@ describe.skipIf(!enabled || !chrome)('user flow: audit a site against minimums',
   });
 
   it('fails a page below its minimum, and --no-fail keeps the job alive', async () => {
-    const dir = await workspace();
-    const config = passingConfig(site.url);
+    const dir = await flow.workspace();
+    const config = passingConfig(flow.site.url);
     config.budgets.js = { max: 1000, regression: 50 };
     await writeConfig(dir, config);
 
@@ -117,100 +85,5 @@ describe.skipIf(!enabled || !chrome)('user flow: audit a site against minimums',
     const noFail = await runCli(['audit', '--no-fail'], { cwd: dir });
     expect(noFail.code).toBe(0);
     expect((await readReport(dir)).failed).toBe(1);
-  });
-
-  it('establishes a baseline, reports deltas, ignores a run-count mismatch and catches new axe debt', async () => {
-    const dir = await workspace();
-    const base = passingConfig(site.url);
-    base.budgets.a11y = { maxViolations: 10, maxNew: 0 };
-    await writeConfig(dir, base);
-
-    const seeded = await runCli(['audit', '--update-baseline'], { cwd: dir });
-    expect(seeded.code).toBe(0);
-    expect(seeded.stdout).toContain('no baseline yet; existing violations are recorded but not gated');
-
-    const baseline = await readJson<BaselineFile>(path.join(dir, '.pulse/baseline.json'));
-    const baselineEntry = baseline.results[baselineKey('mobile', site.url)];
-    expect(baselineEntry.runs).toBe(1);
-    expect(baselineEntry.metrics.violations).toBeGreaterThanOrEqual(3);
-
-    const second = await runCli(['audit'], { cwd: dir });
-    expect(second.code).toBe(0);
-    const secondReport = await readReport(dir);
-    const lcp = secondReport.results[0].checks.find((check) => check.metric === 'lcp');
-    expect(typeof lcp?.baseline).toBe('number');
-    expect(typeof lcp?.delta).toBe('number');
-    expect(secondReport.results[0].baseline).not.toBeNull();
-
-    const mismatch = await runCli(['audit', '--runs', '2'], { cwd: dir });
-    expect(mismatch.code).toBe(0);
-    expect(mismatch.stderr).toContain('Ignoring baseline');
-    const mismatchReport = await readReport(dir);
-    expect(mismatchReport.runs).toBe(2);
-    expect(mismatchReport.results[0].baseline).toBeNull();
-    expect(mismatchReport.results[0].checks.find((check) => check.metric === 'lcp')?.delta).toBeUndefined();
-
-    site.state.extraViolation = true;
-    const regressed = await runCli(['audit'], { cwd: dir });
-    expect(regressed.code).toBe(1);
-    const regressedReport = await readReport(dir);
-    const a11yNew = regressedReport.results[0].checks.find((check) => check.metric === 'a11yNew');
-    expect(a11yNew?.status).toBe('fail');
-    expect(a11yNew?.value ?? 0).toBeGreaterThan(0);
-    expect(regressed.stdout).toContain('New a11y violations');
-  });
-
-  it('derives minimums from a measured page with init --from', async () => {
-    const dir = await workspace();
-
-    const initialized = await runCli(['init', '--from', site.url], { cwd: dir, timeout: 240_000 });
-    expect(initialized.code).toBe(0);
-    expect(initialized.stderr).toContain(`measured ${site.url}`);
-    expect(initialized.stdout).toContain('metric');
-
-    const config = await readJson<PulseConfig>(path.join(dir, '.pulse.json'));
-    expect(config.urls).toEqual([site.url]);
-    expect(config.budgets.lcp?.max).toBeGreaterThan(1000);
-    expect(config.budgets.js?.max).toBeGreaterThan(200_000);
-    expect(config.budgets.a11y?.maxViolations).toBeGreaterThanOrEqual(3);
-
-    // The generated definition should verify the page it came from.
-    const audited = await runCli(['audit'], { cwd: dir });
-    expect(audited.code).toBe(0);
-    expect((await readReport(dir)).failed).toBe(0);
-  });
-
-  it('keeps stdout machine-readable with --json and honors --fail-on warn', async () => {
-    const dir = await workspace();
-    const config = passingConfig(site.url);
-    config.budgets.js = { max: 1000, regression: 50, severity: 'warn' };
-    await writeConfig(dir, config);
-
-    const result = await runCli(['audit', '--json', '--fail-on', 'warn'], { cwd: dir });
-
-    expect(result.code).toBe(1);
-    expect(result.stdout.trim().startsWith('{')).toBe(true);
-    expect(result.stdout.trim().endsWith('}')).toBe(true);
-
-    const report = JSON.parse(result.stdout) as PulseReport;
-    expect(report.warned).toBeGreaterThan(0);
-    expect(report.results[0].checks.find((check) => check.metric === 'js')?.status).toBe('warn');
-
-    // Paths and progress belong on stderr so stdout can be piped into a JSON tool.
-    expect(result.stderr).toContain('report.json');
-    expect(result.stderr).toContain('report.html');
-  });
-
-  it('audits the desktop preset when asked', async () => {
-    const dir = await workspace();
-    const config: PulseConfig = passingConfig(site.url, { preset: 'desktop' });
-    await writeConfig(dir, config);
-
-    const result = await runCli(['audit'], { cwd: dir });
-    expect(result.code).toBe(0);
-    const report = await readReport(dir);
-    expect(report.preset).toBe('desktop');
-    expect(report.results[0].audit.preset).toBe('desktop');
-    expect(report.results[0].audit.metrics.lcp).toBeGreaterThan(0);
   });
 });

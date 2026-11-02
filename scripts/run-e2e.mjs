@@ -28,7 +28,11 @@ function run(command, args, env = {}) {
 }
 
 run(process.execPath, [npmCli, 'run', 'build']);
-run(process.execPath, [path.resolve('node_modules/vitest/vitest.mjs'), 'run', 'test/flows'], {
-  PULSE_E2E: '1',
-  PULSE_PACKAGE: process.env.PULSE_PACKAGE ?? '1',
-});
+run(
+  process.execPath,
+  [path.resolve('node_modules/vitest/vitest.mjs'), 'run', '--config', path.resolve('vitest.flows.config.ts')],
+  {
+    PULSE_E2E: '1',
+    PULSE_PACKAGE: process.env.PULSE_PACKAGE ?? '1',
+  },
+);

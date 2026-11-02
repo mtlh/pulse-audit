@@ -164,6 +164,10 @@ async function measureOnce(
         throttling: options.preset === 'mobile' ? MOBILE_THROTTLING : DESKTOP_THROTTLING,
         throttlingMethod: 'simulate',
         maxWaitForLoad: options.timeoutMs ?? 120_000,
+        // Screenshots are expensive to capture and encode, and Pulse never
+        // reads them. Dropping them shortens every run without changing the
+        // metrics or axe results that are reported.
+        disableFullPageScreenshot: true,
       } as any);
 
       if (!runner) throw new Error('Lighthouse returned no result');

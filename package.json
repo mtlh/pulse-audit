@@ -45,7 +45,7 @@
     "pretest": "npm run build",
     "test": "vitest run",
     "pretest:flows": "npm run build",
-    "test:flows": "vitest run test/flows",
+    "test:flows": "vitest run --config vitest.flows.config.ts",
     "test:e2e": "node scripts/run-e2e.mjs",
     "prebattle-test": "npm run build",
     "battle-test": "node scripts/battle-test.mjs",
