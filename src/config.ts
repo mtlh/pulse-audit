@@ -86,9 +86,16 @@ const budgetsSchema = z
   })
   .strict();
 
+const auditUrlSchema = z
+  .string()
+  .url()
+  .refine((value) => /^https?:\/\//i.test(value), {
+    message: 'URL must start with http:// or https://',
+  });
+
 const pageTargetSchema = z
   .object({
-    url: z.string().url(),
+    url: auditUrlSchema,
     preset: z.enum(['mobile', 'desktop']).optional(),
     runs: z.number().int().min(1).max(10).optional(),
     budgets: budgetsSchema.optional(),
@@ -102,7 +109,7 @@ export const configSchema = z
     strict: z.boolean().default(false),
     retries: z.number().int().nonnegative().default(1),
     timeoutMs: z.number().int().positive().default(120_000),
-    urls: z.array(z.union([z.string().url(), pageTargetSchema])).min(1),
+    urls: z.array(z.union([auditUrlSchema, pageTargetSchema])).min(1),
     budgets: budgetsSchema.default({}),
     report: z
       .object({
@@ -202,6 +209,12 @@ export function resolvePageConfig(config: PulseConfig, target: string | PageTarg
 /** One fully resolved config per URL, in declaration order. */
 export function resolveTargets(config: PulseConfig): PulseConfig[] {
   return config.urls.map((target) => resolvePageConfig(config, target));
+}
+
+/** The URL from a config that `resolveTargets` has reduced to one target. */
+export function targetUrl(page: PulseConfig): string {
+  const target = page.urls[0];
+  return typeof target === 'string' ? target : target.url;
 }
 
 export function budgetsFromResult(result: AuditResult): BudgetSet {

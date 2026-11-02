@@ -1,7 +1,8 @@
 import { mkdir, readFile } from 'node:fs/promises';
+import { createRequire } from 'node:module';
 import { findChromeBinary } from './chrome.js';
-import { baselineKey, baselinePath, readBaseline } from './baseline.js';
-import { loadConfig, resolveTargets } from './config.js';
+import { baselineKey, baselinePath, lighthouseMajor, readBaseline } from './baseline.js';
+import { loadConfig, resolveTargets, targetUrl } from './config.js';
 import type { BaselineFile, PulseConfig } from './types.js';
 
 export type DoctorStatus = 'pass' | 'warn' | 'fail';
@@ -22,7 +23,7 @@ export interface DoctorOptions {
   baselinePath?: string;
   skipNetwork?: boolean;
   /** Injection point for tests; defaults to chrome-launcher + CHROME_PATH. */
-  checkChrome?: () => Promise<{ ok: boolean; detail: string }>;
+  checkChrome?: () => Promise<{ ok: boolean; detail: string; warning?: boolean }>;
   /** Injection point for tests; defaults to a HEAD-then-GET fetch. */
   checkUrl?: (url: string) => Promise<{ ok: boolean; detail: string }>;
 }
@@ -33,12 +34,6 @@ function message(error: unknown): string {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
-/** `resolveTargets` returns one plain URL, but the config type is wider. */
-function targetUrl(page: PulseConfig): string {
-  const target = page.urls[0];
-  return typeof target === 'string' ? target : target.url;
 }
 
 function checkNode(): DoctorCheck {
@@ -54,11 +49,12 @@ function checkNode(): DoctorCheck {
   };
 }
 
-async function checkChrome(): Promise<{ ok: boolean; detail: string }> {
+async function checkChrome(): Promise<{ ok: boolean; detail: string; warning?: boolean }> {
   const found = findChromeBinary();
   return {
     ok: Boolean(found.path),
     detail: found.warning ? `${found.detail} — ${found.warning}` : found.detail,
+    warning: Boolean(found.warning),
   };
 }
 
@@ -129,7 +125,22 @@ async function inspectBaseline(path: string): Promise<{ check: DoctorCheck; base
   }
 }
 
-function checkTargets(config: PulseConfig, baseline: BaselineFile): DoctorCheck[] {
+/** The installed Lighthouse major, used to explain a baseline that cannot compare. */
+function installedLighthouseMajor(): number | null {
+  try {
+    const require = createRequire(import.meta.url);
+    const pkg = require('lighthouse/package.json') as { version?: unknown };
+    return typeof pkg.version === 'string' ? lighthouseMajor(pkg.version) : null;
+  } catch {
+    return null;
+  }
+}
+
+function checkTargets(
+  config: PulseConfig,
+  baseline: BaselineFile,
+  currentLighthouseMajor: number | null,
+): DoctorCheck[] {
   return resolveTargets(config).map((page) => {
     const url = targetUrl(page);
     const key = baselineKey(page.preset, url);
@@ -146,6 +157,16 @@ function checkTargets(config: PulseConfig, baseline: BaselineFile): DoctorCheck[
         detail: `entry is ${entry.preset}, ${entry.runs} run${entry.runs === 1 ? '' : 's'}; config expects ${page.preset}, ${page.runs}`,
       };
     }
+
+    const entryMajor = lighthouseMajor(entry.lighthouseVersion);
+    if (entryMajor !== null && currentLighthouseMajor !== null && entryMajor !== currentLighthouseMajor) {
+      return {
+        name,
+        status: 'fail',
+        detail: `entry was captured with Lighthouse ${entry.lighthouseVersion}; installed Lighthouse is major ${currentLighthouseMajor}, so the baseline will be ignored`,
+      };
+    }
+
     return { name, status: 'pass', detail: key };
   });
 }
@@ -156,7 +177,7 @@ export async function runDoctor(options: DoctorOptions = {}): Promise<DoctorResu
   const chrome = await (options.checkChrome ?? checkChrome)();
   checks.push({
     name: 'chrome',
-    status: chrome.ok ? 'pass' : 'fail',
+    status: !chrome.ok ? 'fail' : chrome.warning ? 'warn' : 'pass',
     detail: chrome.detail,
   });
 
@@ -188,7 +209,7 @@ export async function runDoctor(options: DoctorOptions = {}): Promise<DoctorResu
   checks.push(inspected.check);
 
   if (config && inspected.baseline) {
-    checks.push(...checkTargets(config, inspected.baseline));
+    checks.push(...checkTargets(config, inspected.baseline, installedLighthouseMajor()));
   }
 
   if (!options.skipNetwork && config) {

@@ -78,6 +78,12 @@ describe('config', () => {
     expect(parsed.success).toBe(false);
   });
 
+  it('rejects a URL that Lighthouse cannot audit', () => {
+    expect(configSchema.safeParse({ urls: ['ftp://example.com/'] }).success).toBe(false);
+    expect(configSchema.safeParse({ urls: ['mailto:test@example.com'] }).success).toBe(false);
+    expect(configSchema.safeParse({ urls: ['http://localhost:3000/'] }).success).toBe(true);
+  });
+
   it('rejects unknown keys instead of silently ignoring typos', () => {
     const parsed = configSchema.safeParse({ urls: ['https://example.com/'], budgest: {} });
     expect(parsed.success).toBe(false);

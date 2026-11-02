@@ -63,7 +63,7 @@ export async function writeBaseline(path: string, file: BaselineFile): Promise<v
   await writeFile(path, `${JSON.stringify(next, null, 2)}\n`, 'utf8');
 }
 
-function lighthouseMajor(version: string | undefined): number | null {
+export function lighthouseMajor(version: string | undefined): number | null {
   if (!version) return null;
   const match = /^v?(\d+)/i.exec(version.trim());
   if (!match) return null;

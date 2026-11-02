@@ -86,9 +86,10 @@ regression budget lets a page drift upward forever. Pulse combines them:
 | Over `max` while improving, with `"strict": true` | fail                                         |
 
 The "over max but improved" case is the ratchet: the tool is a regression gate, not a
-compliance auditor. Set `"strict": true` (top level, default `false`) when absolute compliance
-should be enforced now. In strict mode, absolute breaches on `error` rules fail even when the
-page improved; warnings stay warnings.
+compliance auditor. It applies to `error` rules; a `warn` rule that is over `max` but improving
+still reports a warning. Set `"strict": true` (top level, default `false`) when absolute
+compliance should be enforced now. In strict mode, absolute breaches on `error` rules fail even
+when the page improved; warnings stay warnings.
 
 ## Severity
 
@@ -162,15 +163,15 @@ tighten it once fixes land.
 | -------------------- | ---------------------------------------------------------------------------------- |
 | LCP                  | current + 500 ms (minimum 1000 ms)                                                 |
 | CLS                  | 0.05 (or current + 0.02)                                                           |
-| TBT                  | current + 100 ms, warning                                                          |
-| FCP                  | current + 500 ms                                                                   |
+| TBT                  | current + 100 ms (minimum 200 ms), warning                                         |
+| FCP                  | current + 500 ms (minimum 1800 ms)                                                 |
 | TTFB                 | current + 200 ms (minimum 800 ms), warning                                         |
 | JavaScript           | current + 20%, minimum 50 KB                                                       |
 | CSS                  | current + 20%, minimum 100 KB, warning                                             |
 | Fonts                | current + 20%, minimum 300 KB, warning                                             |
 | Images               | current + 20%, minimum 100 KB                                                      |
 | Total                | current + 20%, minimum 1.5 MB, warning                                             |
-| Requests             | current + 10                                                                       |
+| Requests             | current + 10 (minimum 20)                                                          |
 | Third-party bytes    | current + 20%, minimum 300 KB, warning                                             |
 | Third-party requests | current + 10, minimum 20, warning                                                  |
 | A11y                 | `maxNew: 0`, critical/serious buckets at 0, `maxViolations` equal to today's count |

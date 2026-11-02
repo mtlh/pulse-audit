@@ -7,6 +7,7 @@ export {
   PulseConfigError,
   resolvePageConfig,
   resolveTargets,
+  targetUrl,
   writeConfig,
 } from './config.js';
 export { runAudit, pickMedianRun } from './runner.js';
@@ -30,16 +31,20 @@ export {
   baselineKey,
   baselinePath,
   comparableBaseline,
+  lighthouseMajor,
   mergeBaseline,
   pruneBaseline,
   readBaseline,
   writeBaseline,
 } from './baseline.js';
-export { printReport, spreadParts } from './reporters/terminal.js';
+export { printReport } from './reporters/terminal.js';
+export { spreadParts, spreadRows } from './reporters/spread.js';
+export type { SpreadRow } from './reporters/spread.js';
 export { writeJsonReport } from './reporters/json.js';
 export { renderHtml, writeHtmlReport } from './reporters/html.js';
 export { renderMarkdown, upsertSummary } from './reporters/summary.js';
-export { formatBytes, formatDelta, formatPercent, formatValue } from './format.js';
+export { formatBytes, formatDelta, formatPercent, formatRange, formatValue } from './format.js';
+export { IMPACT_ORDER } from './util/a11y.js';
 export { AUDIT_METRIC_KEYS, metricSpreads, metricStat } from './util/variance.js';
 export type { AuditMetricKey, MetricStat } from './util/variance.js';
 export { runDoctor } from './doctor.js';

@@ -84,6 +84,40 @@ describe('compareResult', () => {
     expect(lcp.reason).toContain('not a regression');
   });
 
+  it('fails an over-max metric when the baseline has no value for it', () => {
+    // A v1 baseline predates metrics such as FCP. Without a baseline value the
+    // ratchet cannot know the page improved, so it must not excuse the breach.
+    const baseline = result({
+      metrics: { ...BASE_METRICS, fcp: undefined as unknown as number },
+    });
+    const current = withMetrics({ fcp: 4000 });
+    const fcp = check(compareResult(current, baseline, config()), 'fcp');
+
+    expect(fcp.status).toBe('fail');
+    expect(fcp.reason).toContain('over max');
+    expect(fcp.reason).not.toContain('not a regression');
+  });
+
+  it('fails an over-max metric when the baseline value is zero', () => {
+    const baseline = withMetrics({ js: 0 });
+    const current = withMetrics({ js: 300_000 });
+    const js = check(compareResult(current, baseline, config()), 'js');
+
+    expect(js.status).toBe('fail');
+    expect(js.reason).toContain('over max');
+    expect(js.reason).not.toContain('not a regression');
+  });
+
+  it('explains a regression-only rule that has no usable baseline', () => {
+    const regressionOnly = config({
+      budgets: { ...config().budgets, lcp: { regression: 10 } },
+    });
+    const lcp = check(compareResult(withMetrics({ lcp: 1000 }), null, regressionOnly), 'lcp');
+
+    expect(lcp.status).toBe('pass');
+    expect(lcp.reason).toContain('no comparable baseline');
+  });
+
   it('fails an over-max metric that improved when strict is enabled', () => {
     const baseline = withMetrics({ lcp: 4000 });
     const current = withMetrics({ lcp: 3900 });

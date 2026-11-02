@@ -99,9 +99,10 @@ export async function startFixture(): Promise<FixtureSite> {
 
   const server: Server = createServer((request, response) => {
     const pathname = new URL(request.url ?? '/', 'http://localhost').pathname;
-    const route = pathname === '/' || pathname === '/index.html'
-      ? { type: 'text/html; charset=utf-8', body: html(state.extraViolation) }
-      : routes[pathname];
+    const route =
+      pathname === '/' || pathname === '/index.html'
+        ? { type: 'text/html; charset=utf-8', body: html(state.extraViolation) }
+        : routes[pathname];
 
     if (!route) {
       response.writeHead(404, { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' });

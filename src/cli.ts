@@ -18,6 +18,7 @@ import {
   loadConfig,
   PulseConfigError,
   resolveTargets,
+  targetUrl,
   writeConfig,
 } from './config.js';
 import { runDoctor, type DoctorCheck } from './doctor.js';
@@ -71,6 +72,19 @@ function parsePreset(value: string | undefined): Preset | undefined {
   return value;
 }
 
+/** The positional audit URL bypasses config validation, so check it here too. */
+function assertHttpUrl(value: string): void {
+  let parsed: URL;
+  try {
+    parsed = new URL(value);
+  } catch {
+    throw new Error(`"${value}" is not a valid URL`);
+  }
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+    throw new Error(`"${value}" must use http:// or https://`);
+  }
+}
+
 function parseFailOn(value: string | undefined, noFail: boolean | undefined): FailOn {
   if (noFail === false) return 'none';
   if (value === undefined) return 'error';
@@ -78,12 +92,6 @@ function parseFailOn(value: string | undefined, noFail: boolean | undefined): Fa
     throw new Error('--fail-on must be one of: error, warn, none');
   }
   return value;
-}
-
-/** `resolveTargets` always returns a single plain URL, but the type is wider. */
-function targetUrl(page: PulseConfig): string {
-  const target = page.urls[0];
-  return typeof target === 'string' ? target : target.url;
 }
 
 function pad(value: string, width: number): string {
@@ -243,6 +251,7 @@ program
         fail?: boolean;
       },
     ) => {
+      if (url !== undefined) assertHttpUrl(url);
       const config: PulseConfig = await loadConfig(options.config);
 
       const runs = parseRuns(options.runs);
@@ -426,7 +435,7 @@ baselineCommand
     }
 
     for (const [key, result] of entries) {
-      const lcp = result.metrics ? formatValue(result.metrics.lcp, 'ms') : '—';
+      const lcp = typeof result.metrics?.lcp === 'number' ? formatValue(result.metrics.lcp, 'ms') : '—';
       console.log(pc.bold(result.url ?? key));
       console.log(`  ${pad('preset', 12)}${result.preset ?? '—'}`);
       console.log(`  ${pad('capturedAt', 12)}${result.capturedAt ?? '—'}`);
@@ -493,8 +502,10 @@ program
     }
 
     if (!result.ok) {
-      console.error(pc.red('Doctor found problems that will prevent a successful audit.'));
+      console.error(pc.red('Doctor found problems that will prevent a trustworthy audit.'));
       process.exitCode = 1;
+    } else if (result.checks.some((check) => check.status === 'warn')) {
+      console.log(pc.yellow('Doctor checks passed with warnings.'));
     } else {
       console.log(pc.green('Doctor checks passed.'));
     }

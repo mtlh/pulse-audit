@@ -8,6 +8,7 @@ import type {
   Preset,
   RequestSummary,
 } from './types.js';
+import { IMPACT_ORDER } from './util/a11y.js';
 
 /**
  * Lighthouse's LHR is enormous and changes shape between minor versions.
@@ -15,8 +16,6 @@ import type {
  * Lighthouse version before changing anything here.
  */
 type Lhr = Record<string, any>;
-
-const IMPACT_ORDER: A11yImpact[] = ['critical', 'serious', 'moderate', 'minor'];
 
 export function isA11yImpact(value: unknown): value is A11yImpact {
   return value === 'critical' || value === 'serious' || value === 'moderate' || value === 'minor';

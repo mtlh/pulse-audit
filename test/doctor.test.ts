@@ -63,11 +63,31 @@ describe('doctor', () => {
     // Chrome may be absent in CI; the check must be present but need not pass.
     const chrome = result.checks.find((check) => check.name === 'chrome');
     expect(chrome).toBeDefined();
-    expect(['pass', 'fail']).toContain(chrome?.status);
+    expect(['pass', 'warn', 'fail']).toContain(chrome?.status);
 
     // No baseline is a warning, not a failure.
     const baseline = result.checks.find((check) => check.name === 'baseline');
     expect(baseline?.status).toBe('warn');
+  });
+
+  it('surfaces a Chrome warning without failing the whole doctor run', async () => {
+    const dir = await workspace();
+    const configPath = await writeConfig(dir);
+
+    const result = await runDoctor({
+      configPath,
+      skipNetwork: true,
+      checkChrome: async () => ({
+        ok: true,
+        detail: 'CHROME_PATH points to a Windows chrome.exe',
+        warning: true,
+      }),
+    });
+
+    const chrome = result.checks.find((check) => check.name === 'chrome');
+    expect(chrome?.status).toBe('warn');
+    expect(chrome?.detail).toContain('Windows chrome.exe');
+    expect(result.ok).toBe(true);
   });
 
   it('reads a version 1 baseline through the migration path', async () => {
@@ -130,6 +150,38 @@ describe('doctor', () => {
     const target = result.checks.find((check) => check.name === `baseline mobile ${URL}`);
     expect(target?.status).toBe('fail');
     expect(target?.detail).toContain('1 run');
+    expect(result.ok).toBe(false);
+  });
+
+  it('fails a baseline captured with a different Lighthouse major', async () => {
+    const dir = await workspace();
+    const configPath = await writeConfig(dir);
+    const baselinePath = path.join(dir, '.pulse/baseline.json');
+    await mkdir(path.dirname(baselinePath), { recursive: true });
+    await writeFile(
+      baselinePath,
+      JSON.stringify({
+        version: 2,
+        results: {
+          [`mobile::${URL}`]: {
+            url: URL,
+            preset: 'mobile',
+            runs: 3,
+            capturedAt: '2026-11-02T00:00:00.000Z',
+            lighthouseVersion: '1.0.0',
+            metrics: { lcp: 1500 },
+          },
+        },
+      }),
+      'utf8',
+    );
+
+    const result = await runDoctor({ configPath, baselinePath, skipNetwork: true });
+
+    const target = result.checks.find((check) => check.name === `baseline mobile ${URL}`);
+    expect(target?.status).toBe('fail');
+    expect(target?.detail).toContain('Lighthouse 1.0.0');
+    expect(target?.detail).toContain('ignored');
     expect(result.ok).toBe(false);
   });
 });

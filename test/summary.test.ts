@@ -154,4 +154,20 @@ describe('upsertSummary', () => {
     expect(content).toContain('new file body');
     expect(content.endsWith('<!-- pulse:end -->\n')).toBe(true);
   });
+
+  it('refuses to truncate a file with an unclosed start marker', async () => {
+    const original = '# Log\n\n<!-- pulse:start -->\nold body\nkeep this tail\n';
+    await writeFile(path, original, 'utf8');
+
+    await expect(upsertSummary(path, 'fresh body')).rejects.toThrow(/without a matching/);
+    expect(await readFile(path, 'utf8')).toBe(original);
+  });
+
+  it('refuses to append next to a stray end marker', async () => {
+    const original = '# Log\n\nold body\n<!-- pulse:end -->\n';
+    await writeFile(path, original, 'utf8');
+
+    await expect(upsertSummary(path, 'fresh body')).rejects.toThrow(/without a matching/);
+    expect(await readFile(path, 'utf8')).toBe(original);
+  });
 });

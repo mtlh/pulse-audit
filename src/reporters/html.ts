@@ -8,19 +8,10 @@ import {
   formatValue,
   noteworthyReason,
 } from '../format.js';
-import type {
-  A11yImpact,
-  A11yViolation,
-  AuditMetrics,
-  Check,
-  PulseReport,
-  ReportEntry,
-  RequestSummary,
-} from '../types.js';
-import { metricSpreads, type MetricStat } from '../util/variance.js';
+import type { A11yImpact, A11yViolation, Check, PulseReport, ReportEntry, RequestSummary } from '../types.js';
+import { IMPACT_ORDER } from '../util/a11y.js';
 import { VERSION } from '../version.js';
-
-const IMPACT_ORDER: A11yImpact[] = ['critical', 'serious', 'moderate', 'minor'];
+import { spreadRows } from './spread.js';
 
 function statusPill(check: Check): string {
   return `<span class="pill ${check.status}">${check.status}</span>`;
@@ -207,25 +198,6 @@ function renderA11y(entry: ReportEntry): string {
     ${ignored}
     ${rows}
   </section>`;
-}
-
-interface SpreadRow {
-  check: Check;
-  stat: MetricStat;
-}
-
-function spreadRows(entry: ReportEntry): SpreadRow[] {
-  const samples = entry.audit.samples;
-  if (!samples || samples.length < 2) return [];
-
-  const spreads = metricSpreads(samples);
-  const rows: SpreadRow[] = [];
-  for (const check of entry.checks) {
-    const stat = spreads[check.metric as keyof AuditMetrics];
-    if (!stat || stat.max === stat.min) continue;
-    rows.push({ check, stat });
-  }
-  return rows;
 }
 
 function measuredRuns(entry: ReportEntry): number {
