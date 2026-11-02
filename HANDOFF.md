@@ -6,9 +6,46 @@ to verify it.
 
 - **Location:** `C:\Users\matth\Downloads\pulse-audit`
 - **Owner:** Matthew Harvey (`github.com/mtlh`)
-- **Status:** v0.1.0 live on npm as `@mtlh/pulse-audit`; `npx` verified on a clean temp directory
+- **Status:** v0.1.0 live on npm as `@mtlh/pulse-audit`; unreleased trustworthy-gate and WSL changes in this tree; npx-first, no composite action
 - **Git:** `main` pushed to `github.com/mtlh/pulse-audit`; `v0.1.0` tagged and pushed
 - **Related portfolio:** `C:\Users\matth\Downloads\PortfolioV2`
+
+---
+
+## Unreleased status — "trustworthy gate" (still v0.1.0)
+
+This worktree implements the v0.2 scope from `docs/roadmap.md` on top of v0.1.0. The package
+version intentionally stays at 0.1.0.
+
+What changed:
+
+- **Baseline v2**, keyed by `preset::url`. Version 1 files are migrated automatically on read
+  and rewritten as version 2 on the next `--update-baseline`; mobile and desktop baselines now
+  coexist. `--update-baseline` is skipped when any URL fails so a partial baseline cannot be
+  saved.
+- **Samples and variance.** Every measured run is stored in `AuditResult.samples`; the
+  terminal, Markdown and HTML reports show the run spread next to the median gate.
+- **Config:** per-URL `preset`/`runs`/`budgets` overrides, readable units (`"2.5s"`,
+  `"250kb"`, `"10%"`), `strict`, `retries` and `timeoutMs`. Inert budget rules are rejected at
+  load time.
+- **Metrics:** FCP, TTFB, CSS, fonts, total weight and third-party bytes/requests; a11y impact
+  buckets (`maxNewByImpact`) and `ignoreRules`.
+- **Per-URL error isolation with retries.** One failed URL no longer discards the rest.
+- **New CLI surface:** `pulse baseline show`, `pulse baseline prune [--dry-run]`,
+  `pulse doctor [--skip-network]`, `--json`, `--quiet`, `--fail-on <error|warn|none>`,
+  `--retries`, `--timeout`. `--summary` replaces its `pulse:start` block instead of appending
+  duplicates. `--version` reads `package.json`.
+- **Exit codes:** `2` for config/tool errors or any URL that could not be audited (successful
+  URLs are still reported), `1` for check failures or warnings under `--fail-on warn`, `0`
+  otherwise.
+
+Breaking API changes: `runAudit(url, { preset, runs, retries, timeoutMs })` and
+`buildReport(inputs)`. The README has the migration summary.
+
+Verified with `npm run typecheck`, `npm test` (105 passed, 7 Chrome/package flows skipped),
+`npm run build` and `npm run test:e2e` (14 flow tests, including the packed install). The report
+JSON schema is now version 2; the HTML footer shows the package version separately. WSL support
+adds Linux Chrome detection (including snap/Flatpak fallbacks) and WSL-specific doctor guidance.
 
 ---
 
@@ -50,27 +87,28 @@ a11y gating, and a report that diagnoses instead of scoring.
 | Area | State | Notes |
 | --- | --- | --- |
 | `package.json` / TS / tsup / vitest | Done | Node 20+, ESM |
-| Config schema + defaults | Done | zod, rejects unknown keys |
+| Config schema + defaults | **Verified** | zod, per-URL overrides, readable units, strict mode |
 | `init` command | **Verified** | defaults or measured budgets via `--from` |
-| Lighthouse runner | **Verified (median + warm-up)** | Lighthouse 12.8.2, live portfolio audit; N measured runs, 1 warm-up discarded |
-| LHR extraction | **Verified** | LCP element, request weights and axe nodes checked |
-| Compare / budget logic | **Verified (live + flows)** | unit tested and exercised by the CLI flows |
-| Baseline read/write + comparability | **Verified (live)** | refuses cross-preset/version/run-count compares |
-| Terminal reporter | Done | ANSI colour |
-| JSON reporter | Done | |
-| HTML reporter | **Verified** | self-contained, no JS; checked at 390 and 1280 px |
-| Markdown summary | Done | for `$GITHUB_STEP_SUMMARY` |
+| Lighthouse runner | **Verified (samples + warm-up + retries)** | Lighthouse 12.8.2; median of N, per-run samples, retry and per-URL isolation |
+| LHR extraction | **Verified** | LCP element, expanded weight metrics and axe nodes checked |
+| Compare / budget logic | **Verified (live + flows)** | strict mode, impact buckets and `ignoreRules` unit tested |
+| Baseline read/write + comparability | **Verified (v2 + migration)** | keyed `preset::url`; v1 migrates on read; major-version comparability |
+| Terminal reporter | Done | ANSI colour, run spread, ignored-rule note |
+| JSON reporter | Done | report schema v2 |
+| HTML reporter | **Verified** | self-contained, no JS; variance, third-party and cross-URL sections |
+| Markdown summary | Done | for `$GITHUB_STEP_SUMMARY`; replaces its marker block |
 | GitHub Action | **Dropped** | owner chose npx/CLI as the delivery path |
-| Unit tests | Done | pure functions + flow contracts |
-| Integration tests / fixture site | **Verified** | deterministic fixture + 13 CLI flows; `PULSE_E2E=1` |
-| Docs | Updated | budgets, action, quick start, test commands |
-| npm publish | **Live** | `@mtlh/pulse-audit@0.1.0`; `npx` verified |
+| WSL | **Verified (unit)** | Linux Chrome detection incl. snap/Flatpak; `doctor` guidance |
+| Unit tests | Done | 105 tests in the current tree |
+| Integration tests / fixture site | **Verified** | deterministic fixture + 14 CLI flows; `PULSE_E2E=1` |
+| Docs | Updated | budgets, roadmap, WSL, quick start, test commands |
+| npm publish | **Live** | `@mtlh/pulse-audit@0.1.0`; unreleased changes stay on `main` until a version bump |
 | Release workflow | **Added** | main push → publish new version → tag/release |
 | PR comment | Not done | step summary only |
 
 `npm install` has been run and `package-lock.json` is present. `npm run typecheck`,
-`npm test` (32 tests; 6 Chrome/package flows skipped) and `npm run build` all pass.
-`npm run test:e2e` runs the 13 flow tests, including fixture audits and a packed install.
+`npm test` (105 tests; 7 Chrome/package flows skipped) and `npm run build` all pass.
+`npm run test:e2e` runs the 14 flow tests, including fixture audits and a packed install.
 `npm run battle-test` exercises the live portfolio through the CLI sequence.
 
 ---
@@ -145,15 +183,15 @@ Expected on the first run:
 
 **Verified at scaffold time (2026-11-02, one run, mobile):**
 
-| Metric | Value |
-| --- | --- |
-| LCP | 1.83 s |
-| CLS | 0.001 |
-| TBT | 66 ms |
-| JavaScript | 5.6 KB |
-| Images | 60.6 KB |
-| Requests | 42 |
-| A11y | 11 nodes, all `color-contrast` |
+| Metric     | Value                          |
+| ---------- | ------------------------------ |
+| LCP        | 1.83 s                         |
+| CLS        | 0.001                          |
+| TBT        | 66 ms                          |
+| JavaScript | 5.6 KB                         |
+| Images     | 60.6 KB                        |
+| Requests   | 42                             |
+| A11y       | 11 nodes, all `color-contrast` |
 
 The report was 14.9 KB. The LCP element resolved to
 `body.antialiased > main#main-content > section.bg-cover`, which confirms the extractor's
@@ -208,36 +246,36 @@ Work top to bottom. Each step should leave `npm run typecheck && npm test` green
 - Confirm `extractResult` returns sensible numbers (compare against the Lighthouse JSON:
   LCP, CLS, TBT, JS bytes, request count).
 - **Acceptance:** two consecutive `--runs 1` audits of the same URL produce a report without
-  throwing, and LCP is within ~20% of the Lighthouse JSON value. *(Confirmed 2026-11-02:
-  1.53 s and 1.53 s; runs=3 and the warm-up path also verified)*
+  throwing, and LCP is within ~20% of the Lighthouse JSON value. _(Confirmed 2026-11-02:
+  1.53 s and 1.53 s; runs=3 and the warm-up path also verified)_
 
 ### Step 2 — Verify the HTML report
 
 - Open `.pulse/report.html` in Chrome at 390 px and 1280 px.
 - Check: no horizontal scroll, status pills correct, requests bars proportional, long URLs
   ellipsized, axe selectors escaped.
-- **Acceptance:** report < 100 KB, no console errors, readable at 390 px. *(Verified
+- **Acceptance:** report < 100 KB, no console errors, readable at 390 px. _(Verified
   2026-11-02: 14.9 KB, zero console errors, no horizontal scroll at 390 or 1280 px. A long
   selector previously forced 602 px of scroll; fixed with `minmax(0, 1fr)` and wrapping.
-  Escaping is covered by `test/html.test.ts`.)*
+  Escaping is covered by `test/html.test.ts`.)_
 
 ### Step 3 — Baseline flow
 
 - `audit --update-baseline`, then edit a budget to force a failure, then `audit`.
 - Confirm exit code 1 and a readable delta.
 - Confirm a baseline with a different `runs` value is ignored with a warning.
-- **Acceptance:** pass/fail/exit-code matrix in `docs/budgets.md` is true. *(Verified
+- **Acceptance:** pass/fail/exit-code matrix in `docs/budgets.md` is true. _(Verified
   2026-11-02 with a temporary config: first `--update-baseline` exits 0, the next run reports
   deltas and exits 0, a lowered baseline exits 1 with `↳ regressed +38.7% vs baseline`, an
   over-max-but-improving metric exits 0 with `↳ over max … but not a regression`, and a
   different `--runs` count warns and ignores the baseline. Failures, warnings and ratchet
-  passes now print their reason in the terminal, HTML and Markdown reports.)*
+  passes now print their reason in the terminal, HTML and Markdown reports.)_
 
 ### Step 4 — Fixture site + integration tests
 
 Create `test/fixtures/site/` with:
 
-- a large hero image that is *not* preloaded (late LCP),
+- a large hero image that is _not_ preloaded (late LCP),
 - an element injected after load that shifts layout (CLS),
 - an `<img>` without `alt` and a low-contrast paragraph (axe),
 - a ~200 KB script (weight budget).
@@ -246,12 +284,12 @@ Serve it from a tiny Node server in the test. Run one audit and assert the repor
 Keep the fixture deterministic: no external requests, fixed dimensions.
 
 - **Acceptance:** `npm test` covers extraction, compare and an end-to-end audit behind
-  `PULSE_E2E=1` so CI without Chrome can skip it. *(Verified 2026-11-02. The fixture lives in
+  `PULSE_E2E=1` so CI without Chrome can skip it. _(Verified 2026-11-02. The fixture lives in
   `test/flows/fixture.ts` and generates the heavy assets in memory. Measured: LCP 2.40 s on
   `img.hero`, CLS 0.075, JS 220 KB, images 161 KB, 4 requests, 3 axe nodes. `test/flows/`
   covers init, pass/fail/`--no-fail`, baseline seeding, deltas, run-count mismatch, new axe
-  debt, `init --from`, desktop and a packed install. 13 flow tests pass with
-  `npm run test:e2e`; 5 no-Chrome flow tests run in `npm test`.)*
+  debt, `init --from`, desktop and a packed install. 14 flow tests pass with
+  `npm run test:e2e`; 5 no-Chrome flow tests run in `npm test`.)_
 
 ### Step 5 — Flakiness
 
@@ -262,7 +300,7 @@ Keep the fixture deterministic: no external requests, fixed dimensions.
 - **Local observations (2026-11-02):** live portfolio LCP stayed in 1.51–1.66 s across runs
   (about 5% spread); TBT ranged 0–133 ms but is already `warn`; requests, JS, images and a11y
   node count were stable. The fixture produced the expected pass/fail outcome throughout the
-  13 flow tests (~20 Lighthouse runs). No unexpected pass/fail flips were observed. A real
+  14 flow tests (~20 Lighthouse runs). No unexpected pass/fail flips were observed. A real
   GitHub-hosted runner sample is still needed for the 20-run acceptance.
 
 ### Step 6 — GitHub Action (dropped)
@@ -294,7 +332,7 @@ still runs `npm run test:e2e`; consumers call the CLI from their own runner.
 ### Lighthouse
 
 - Lighthouse 12 is ESM. `import lighthouse from 'lighthouse'` and `import * as chromeLauncher
-  from 'chrome-launcher'`.
+from 'chrome-launcher'`.
 - `lighthouse()` returns `RunnerResult | undefined`; guard it.
 - Use one Chrome instance for all runs, then `chrome.kill()` in `finally`.
 - `onlyCategories: ['performance', 'accessibility']` keeps runs faster; do not enable SEO/best
@@ -361,6 +399,15 @@ still runs `npm run test:e2e`; consumers call the CLI from their own runner.
   `C:\Program Files\Google\Chrome\Application\chrome.exe`.
 - The CLI writes `.pulse/` relative to the current directory.
 
+### WSL
+
+- WSL needs a **Linux** Chrome/Chromium inside the distro. A Windows `chrome.exe` is not a
+  reliable Lighthouse target because its DevTools port lives on the Windows side.
+- `src/chrome.ts` detects WSL, checks `CHROME_PATH`, `chrome-launcher` installs, and
+  Linux/snap/Flatpak fallbacks (`/usr/bin/google-chrome`, `/snap/bin/chromium`, etc.).
+- `pulse doctor` reports the detected binary and warns when `CHROME_PATH` points at `.exe`.
+- Chrome is launched with `--no-sandbox` and `--disable-dev-shm-usage`, which WSL needs.
+
 ### Report
 
 - Inline everything. No CDN, no fonts, no chart library.
@@ -380,14 +427,14 @@ still runs `npm run test:e2e`; consumers call the CLI from their own runner.
 
 Measured with `PortfolioV2/perf/cdp-trace.mjs` on 2026-11-02: mobile, 4x CPU throttle, 3G.
 
-| Metric | Value | Note |
-| --- | --- | --- |
-| LCP | 1.33 s | hero CSS background image; late discovery |
-| CLS | 0.0012 | already excellent |
-| Long task | 190 ms at 1.68 s | one main-thread block remains |
-| Requests | 81 | ~27 individual skill-icon SVGs |
-| Third party | `ghchart.rshah.org` at 752 ms TTFB | on the critical path |
-| HTML / CSS / router JS | 15.5 KB / 19.3 KB / 5.6 KB | base is lean |
+| Metric                 | Value                              | Note                                      |
+| ---------------------- | ---------------------------------- | ----------------------------------------- |
+| LCP                    | 1.33 s                             | hero CSS background image; late discovery |
+| CLS                    | 0.0012                             | already excellent                         |
+| Long task              | 190 ms at 1.68 s                   | one main-thread block remains             |
+| Requests               | 81                                 | ~27 individual skill-icon SVGs            |
+| Third party            | `ghchart.rshah.org` at 752 ms TTFB | on the critical path                      |
+| HTML / CSS / router JS | 15.5 KB / 19.3 KB / 5.6 KB         | base is lean                              |
 
 Use these as the starting point for `.pulse.json` (already seeded) and the case study. Likely
 fixes: `<img fetchpriority="high">` + preload for the hero, sprite/inline the skill icons,
@@ -414,7 +461,7 @@ self-host the GitHub chart, then re-baseline and tighten `requests` from 90 to ~
 
 > You are continuing `pulse-audit` at `C:\Users\matth\Downloads\pulse-audit`. Read
 > `HANDOFF.md` first. Steps 1-4 are complete and v0.1.0 is live on npm. The delivery path is
-> `npx @mtlh/pulse-audit`; there is no composite action. `npm run test:e2e` runs the 13 flow tests
+> `npx @mtlh/pulse-audit`; there is no composite action. `npm run test:e2e` runs the 14 flow tests
 > (including a packed install) and `npm run battle-test` exercises the live portfolio. Your next
 > jobs are Step 5 (flakiness/variance) and Step 7 (README GIF, tag maintenance). Use
 > `pulse init --from <url>` as the primary adoption path: it measures the page and writes

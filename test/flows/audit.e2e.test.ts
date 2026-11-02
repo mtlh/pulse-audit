@@ -1,7 +1,8 @@
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest';
-import type { BaselineFile, PulseConfig } from '../../src/types.js';
+import { baselineKey } from '../../src/baseline.js';
+import type { BaselineFile, PulseConfig, PulseReport } from '../../src/types.js';
 import { startFixture, type FixtureSite } from './fixture.js';
 import {
   chromeAvailable,
@@ -51,8 +52,9 @@ describe.skipIf(!enabled || !chrome)('user flow: audit a site against minimums',
     });
 
     expect(result.code).toBe(0);
-    expect(result.stdout).toContain('8 passed');
-    expect(result.stderr).toContain('1 measured run + warm-up');
+    expect(result.stdout).toContain('15 passed');
+    expect(result.stderr).toContain('auditing');
+    expect(result.stderr).toContain('1 run + warm-up');
 
     const report = await readReport(dir);
     expect(report.failed).toBe(0);
@@ -65,6 +67,14 @@ describe.skipIf(!enabled || !chrome)('user flow: audit a site against minimums',
     expect(audit.metrics.images).toBeGreaterThan(150_000);
     expect(audit.metrics.requests).toBeGreaterThanOrEqual(4);
     expect(audit.metrics.violations).toBeGreaterThanOrEqual(3);
+    expect(audit.metrics.fcp).toBeGreaterThan(0);
+    expect(audit.metrics.ttfb).toBeGreaterThan(0);
+    expect(audit.metrics.css).toBeGreaterThanOrEqual(0);
+    expect(audit.metrics.fonts).toBeGreaterThanOrEqual(0);
+    expect(audit.metrics.total).toBeGreaterThanOrEqual(audit.metrics.js);
+    expect(typeof audit.metrics.thirdPartyBytes).toBe('number');
+    expect(typeof audit.metrics.thirdPartyRequests).toBe('number');
+    expect(audit.samples).toHaveLength(1);
     expect(audit.lcpElement?.selector).toBeTruthy();
     expect(audit.violations.map((violation) => violation.id)).toContain('image-alt');
     expect(audit.violations.map((violation) => violation.id)).toContain('color-contrast');
@@ -80,7 +90,9 @@ describe.skipIf(!enabled || !chrome)('user flow: audit a site against minimums',
 
     const output = await readFile(githubOutput, 'utf8');
     expect(output).toContain('report-path=');
-    expect(output).toContain('failed=0');
+    expect(output).toContain('failed=false');
+    expect(output).toContain('failed-count=0');
+    expect(output).toContain('warned-count=0');
   });
 
   it('fails a page below its minimum, and --no-fail keeps the job alive', async () => {
@@ -118,8 +130,9 @@ describe.skipIf(!enabled || !chrome)('user flow: audit a site against minimums',
     expect(seeded.stdout).toContain('no baseline yet; existing violations are recorded but not gated');
 
     const baseline = await readJson<BaselineFile>(path.join(dir, '.pulse/baseline.json'));
-    expect(baseline.results[site.url].runs).toBe(1);
-    expect(baseline.results[site.url].metrics.violations).toBeGreaterThanOrEqual(3);
+    const baselineEntry = baseline.results[baselineKey('mobile', site.url)];
+    expect(baselineEntry.runs).toBe(1);
+    expect(baselineEntry.metrics.violations).toBeGreaterThanOrEqual(3);
 
     const second = await runCli(['audit'], { cwd: dir });
     expect(second.code).toBe(0);
@@ -143,7 +156,7 @@ describe.skipIf(!enabled || !chrome)('user flow: audit a site against minimums',
     const regressedReport = await readReport(dir);
     const a11yNew = regressedReport.results[0].checks.find((check) => check.metric === 'a11yNew');
     expect(a11yNew?.status).toBe('fail');
-    expect((a11yNew?.value ?? 0)).toBeGreaterThan(0);
+    expect(a11yNew?.value ?? 0).toBeGreaterThan(0);
     expect(regressed.stdout).toContain('New a11y violations');
   });
 
@@ -165,6 +178,27 @@ describe.skipIf(!enabled || !chrome)('user flow: audit a site against minimums',
     const audited = await runCli(['audit'], { cwd: dir });
     expect(audited.code).toBe(0);
     expect((await readReport(dir)).failed).toBe(0);
+  });
+
+  it('keeps stdout machine-readable with --json and honors --fail-on warn', async () => {
+    const dir = await workspace();
+    const config = passingConfig(site.url);
+    config.budgets.js = { max: 1000, regression: 50, severity: 'warn' };
+    await writeConfig(dir, config);
+
+    const result = await runCli(['audit', '--json', '--fail-on', 'warn'], { cwd: dir });
+
+    expect(result.code).toBe(1);
+    expect(result.stdout.trim().startsWith('{')).toBe(true);
+    expect(result.stdout.trim().endsWith('}')).toBe(true);
+
+    const report = JSON.parse(result.stdout) as PulseReport;
+    expect(report.warned).toBeGreaterThan(0);
+    expect(report.results[0].checks.find((check) => check.metric === 'js')?.status).toBe('warn');
+
+    // Paths and progress belong on stderr so stdout can be piped into a JSON tool.
+    expect(result.stderr).toContain('report.json');
+    expect(result.stderr).toContain('report.html');
   });
 
   it('audits the desktop preset when asked', async () => {

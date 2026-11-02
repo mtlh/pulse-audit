@@ -1,5 +1,15 @@
 import { formatDelta, formatPercent, formatValue, type ValueFormat } from './format.js';
-import type { AuditMetrics, AuditResult, Check, PulseConfig, Severity, Status } from './types.js';
+import type {
+  A11yImpact,
+  A11yNode,
+  A11yViolation,
+  AuditMetrics,
+  AuditResult,
+  Check,
+  PulseConfig,
+  Severity,
+  Status,
+} from './types.js';
 
 interface MetricSpec {
   key: Exclude<keyof AuditMetrics, 'violations'>;
@@ -12,36 +22,189 @@ const METRIC_SPECS: MetricSpec[] = [
   { key: 'lcp', label: 'LCP', format: 'ms', defaultSeverity: 'error' },
   { key: 'cls', label: 'CLS', format: 'score', defaultSeverity: 'error' },
   { key: 'tbt', label: 'TBT', format: 'ms', defaultSeverity: 'warn' },
+  { key: 'fcp', label: 'FCP', format: 'ms', defaultSeverity: 'error' },
+  { key: 'ttfb', label: 'TTFB', format: 'ms', defaultSeverity: 'warn' },
   { key: 'js', label: 'JavaScript', format: 'bytes', defaultSeverity: 'error' },
+  { key: 'css', label: 'CSS', format: 'bytes', defaultSeverity: 'warn' },
+  { key: 'fonts', label: 'Fonts', format: 'bytes', defaultSeverity: 'warn' },
   { key: 'images', label: 'Images', format: 'bytes', defaultSeverity: 'warn' },
+  { key: 'total', label: 'Total weight', format: 'bytes', defaultSeverity: 'warn' },
   { key: 'requests', label: 'Requests', format: 'count', defaultSeverity: 'error' },
+  { key: 'thirdPartyBytes', label: 'Third-party bytes', format: 'bytes', defaultSeverity: 'warn' },
+  { key: 'thirdPartyRequests', label: 'Third-party requests', format: 'count', defaultSeverity: 'warn' },
 ];
 
-export function countViolationNodes(result: AuditResult): number {
-  return result.violations.reduce((total, violation) => total + Math.max(violation.nodes.length, 1), 0);
+const IMPACT_ORDER: A11yImpact[] = ['critical', 'serious', 'moderate', 'minor'];
+
+function normalizeText(value: string | undefined): string {
+  return (value ?? '').replace(/\s+/g, ' ').trim();
 }
 
 /**
- * Counts violation nodes that are not in the baseline, keyed by rule id + selector.
- * Refine to include failureSummary if selectors prove too coarse in practice.
+ * Stable identity for an a11y node across runs. Rule id alone is too coarse and
+ * a selector alone can appear twice on one page with different remedies, so the
+ * failure summary is part of the key. Whitespace differences are ignored.
  */
-export function countNewViolations(current: AuditResult, baseline: AuditResult | null): number {
-  if (!baseline) return countViolationNodes(current);
+export function violationKey(id: string, selector: string, failureSummary?: string): string {
+  return `${id}::${selector}::${normalizeText(failureSummary)}`;
+}
 
-  const known = new Set<string>();
+function violationNodeKeys(violation: A11yViolation): string[] {
+  if (violation.nodes.length === 0) return [violationKey(violation.id, '')];
+  return violation.nodes.map((node) => violationKey(violation.id, node.selector, node.failureSummary));
+}
+
+interface KnownNodes {
+  /** Full identity for nodes whose baseline recorded a failure summary. */
+  full: Set<string>;
+  /** `id::selector` for baseline nodes that predate failure summaries. */
+  baseWithoutSummary: Set<string>;
+  /** `id::selector` for every baseline node, used when the current node has no summary. */
+  allBase: Set<string>;
+}
+
+/**
+ * Version 1 baselines stored only `rule id + selector`; current runs also store
+ * `failureSummary`. Index both shapes so upgrading does not turn every existing
+ * violation into "new" debt.
+ */
+function indexKnownViolations(baseline: Pick<AuditResult, 'violations'>): KnownNodes {
+  const index: KnownNodes = {
+    full: new Set(),
+    baseWithoutSummary: new Set(),
+    allBase: new Set(),
+  };
+
   for (const violation of baseline.violations) {
-    const selectors = violation.nodes.length > 0 ? violation.nodes.map((node) => node.selector) : [''];
-    for (const selector of selectors) known.add(`${violation.id}::${selector}`);
-  }
-
-  let count = 0;
-  for (const violation of current.violations) {
-    const selectors = violation.nodes.length > 0 ? violation.nodes.map((node) => node.selector) : [''];
-    for (const selector of selectors) {
-      if (!known.has(`${violation.id}::${selector}`)) count += 1;
+    const nodes = violation.nodes.length > 0 ? violation.nodes : [{ selector: '' }];
+    for (const node of nodes) {
+      const base = `${violation.id}::${node.selector}`;
+      index.allBase.add(base);
+      if (node.failureSummary) {
+        index.full.add(violationKey(violation.id, node.selector, node.failureSummary));
+      } else {
+        index.baseWithoutSummary.add(base);
+      }
     }
   }
-  return count;
+
+  return index;
+}
+
+function isKnownNode(
+  index: KnownNodes,
+  id: string,
+  selector: string,
+  failureSummary: string | undefined,
+): boolean {
+  const base = `${id}::${selector}`;
+  if (!failureSummary) return index.allBase.has(base);
+  return index.full.has(violationKey(id, selector, failureSummary)) || index.baseWithoutSummary.has(base);
+}
+
+function nodeImpact(node: A11yNode, violation: A11yViolation): A11yImpact {
+  return node.impact ?? violation.impact;
+}
+
+export function countViolationNodes(result: Pick<AuditResult, 'violations'>): number {
+  const keys = new Set<string>();
+  for (const violation of result.violations) {
+    for (const key of violationNodeKeys(violation)) keys.add(key);
+  }
+  return keys.size;
+}
+
+/**
+ * Counts violation nodes that are not in the baseline. Without a baseline every
+ * current node is new (the gate itself deliberately treats this as 0 debt).
+ */
+export function countNewViolations(
+  current: Pick<AuditResult, 'violations'>,
+  baseline: Pick<AuditResult, 'violations'> | null,
+): number {
+  if (!baseline) return countViolationNodes(current);
+
+  const known = indexKnownViolations(baseline);
+  const next = new Set<string>();
+  for (const violation of current.violations) {
+    if (violation.nodes.length === 0) {
+      if (!isKnownNode(known, violation.id, '', undefined)) {
+        next.add(violationKey(violation.id, ''));
+      }
+      continue;
+    }
+    for (const node of violation.nodes) {
+      if (!isKnownNode(known, violation.id, node.selector, node.failureSummary)) {
+        next.add(violationKey(violation.id, node.selector, node.failureSummary));
+      }
+    }
+  }
+  return next.size;
+}
+
+export function countViolationNodesByImpact(
+  result: Pick<AuditResult, 'violations'>,
+  impact: A11yImpact,
+): number {
+  const keys = new Set<string>();
+  for (const violation of result.violations) {
+    if (violation.nodes.length === 0) {
+      if (violation.impact === impact) keys.add(violationKey(violation.id, ''));
+      continue;
+    }
+    for (const node of violation.nodes) {
+      if (nodeImpact(node, violation) === impact) {
+        keys.add(violationKey(violation.id, node.selector, node.failureSummary));
+      }
+    }
+  }
+  return keys.size;
+}
+
+export function countNewViolationsByImpact(
+  current: Pick<AuditResult, 'violations'>,
+  baseline: Pick<AuditResult, 'violations'> | null,
+  impact: A11yImpact,
+): number {
+  if (!baseline) return countViolationNodesByImpact(current, impact);
+
+  const known = indexKnownViolations(baseline);
+  const next = new Set<string>();
+  for (const violation of current.violations) {
+    if (violation.nodes.length === 0) {
+      if (violation.impact === impact && !isKnownNode(known, violation.id, '', undefined)) {
+        next.add(violationKey(violation.id, ''));
+      }
+      continue;
+    }
+    for (const node of violation.nodes) {
+      if (nodeImpact(node, violation) !== impact) continue;
+      if (!isKnownNode(known, violation.id, node.selector, node.failureSummary)) {
+        next.add(violationKey(violation.id, node.selector, node.failureSummary));
+      }
+    }
+  }
+  return next.size;
+}
+
+/**
+ * Removes ignored axe rules and recalculates the violation count so the report
+ * and the gate stay in agreement.
+ */
+export function filterIgnoredViolations(audit: AuditResult, ignoreRules?: string[]): AuditResult {
+  if (!ignoreRules || ignoreRules.length === 0) return audit;
+
+  const ignored = new Set(ignoreRules);
+  const violations = audit.violations.filter((violation) => !ignored.has(violation.id));
+
+  return {
+    ...audit,
+    violations,
+    metrics: {
+      ...audit.metrics,
+      violations: countViolationNodes({ violations }),
+    },
+  };
 }
 
 function evaluateMetric(
@@ -65,12 +228,15 @@ function evaluateMetric(
   const regressionBreach =
     rule.regression !== undefined && deltaPct !== undefined && deltaPct > rule.regression;
   const severity = rule.severity ?? metric.defaultSeverity;
+  // In strict mode an absolute budget is a hard ceiling: being better than the
+  // baseline does not excuse being over it. Warnings stay warnings.
+  const strictAbsoluteBreach = config.strict === true && absoluteBreach && severity === 'error';
 
   let status: Status = 'pass';
   let reason = 'within budget';
 
   if (absoluteBreach || regressionBreach) {
-    if (absoluteBreach && !regressionBreach && baseline && severity === 'error') {
+    if (absoluteBreach && !regressionBreach && baseline && severity === 'error' && !strictAbsoluteBreach) {
       // Ratchet behaviour: already over budget before this change. Do not block
       // the PR, but the report still makes the overshoot visible. Warnings stay
       // warnings so noisy metrics remain visible without failing the build.
@@ -102,22 +268,18 @@ function evaluateMetric(
   };
 }
 
-function evaluateA11y(
-  current: AuditResult,
-  baseline: AuditResult | null,
-  config: PulseConfig,
-): Check[] {
+function evaluateA11y(current: AuditResult, baseline: AuditResult | null, config: PulseConfig): Check[] {
   const rule = config.budgets.a11y;
   if (!rule) return [];
 
   const severity = rule.severity ?? 'error';
   const total = countViolationNodes(current);
+  const hasBaseline = baseline !== null;
   const checks: Check[] = [];
 
   if (rule.maxNew !== undefined) {
     // Without a baseline nothing can be "new". Existing debt is recorded via
     // maxViolations; gating on maxNew starts with the first saved baseline.
-    const hasBaseline = baseline !== null;
     const newViolations = hasBaseline ? countNewViolations(current, baseline) : 0;
     const failed = hasBaseline && newViolations > rule.maxNew;
     checks.push({
@@ -134,6 +296,29 @@ function evaluateA11y(
         : failed
           ? `max ${rule.maxNew} new violations`
           : 'no new violations',
+    });
+  }
+
+  for (const impact of IMPACT_ORDER) {
+    const max = rule.maxNewByImpact?.[impact];
+    if (max === undefined) continue;
+
+    const newViolations = hasBaseline ? countNewViolationsByImpact(current, baseline, impact) : 0;
+    const failed = hasBaseline && newViolations > max;
+    checks.push({
+      metric: `a11yNew:${impact}`,
+      label: `New ${impact} a11y`,
+      value: newViolations,
+      formatted: String(newViolations),
+      format: 'count',
+      max,
+      status: failed ? (severity === 'warn' ? 'warn' : 'fail') : 'pass',
+      severity,
+      reason: !hasBaseline
+        ? 'no baseline yet; existing violations are recorded but not gated'
+        : failed
+          ? `max ${max} new ${impact} violations`
+          : `no new ${impact} violations`,
     });
   }
 
@@ -160,9 +345,15 @@ export function compareResult(
   baseline: AuditResult | null,
   config: PulseConfig,
 ): Check[] {
-  const metricChecks = METRIC_SPECS.map((metric) => evaluateMetric(metric, current, baseline, config)).filter(
-    (check): check is Check => check !== null,
-  );
+  // buildReport also filters before calling this, but doing it here keeps direct
+  // compareResult callers honest and the operation is idempotent.
+  const ignoreRules = config.budgets.a11y?.ignoreRules;
+  const filteredCurrent = filterIgnoredViolations(current, ignoreRules);
+  const filteredBaseline = baseline ? filterIgnoredViolations(baseline, ignoreRules) : null;
 
-  return [...metricChecks, ...evaluateA11y(current, baseline, config)];
+  const metricChecks = METRIC_SPECS.map((metric) =>
+    evaluateMetric(metric, filteredCurrent, filteredBaseline, config),
+  ).filter((check): check is Check => check !== null);
+
+  return [...metricChecks, ...evaluateA11y(filteredCurrent, filteredBaseline, config)];
 }

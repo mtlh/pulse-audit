@@ -31,7 +31,9 @@ export function findNpmCli(): string {
     path.join(path.dirname(process.execPath), 'node_modules/npm/bin/npm-cli.js'),
     path.join(path.dirname(process.execPath), '..', 'lib', 'node_modules/npm/bin/npm-cli.js'),
   ];
-  const found = candidates.find((candidate): candidate is string => Boolean(candidate && existsSync(candidate)));
+  const found = candidates.find((candidate): candidate is string =>
+    Boolean(candidate && existsSync(candidate)),
+  );
   if (!found) throw new Error('Could not find npm-cli.js; run the package flow through npm.');
   return found;
 }
@@ -75,7 +77,11 @@ export async function runCommand(
     });
     return { code: 0, stdout, stderr };
   } catch (error) {
-    const failure = error as NodeJS.ErrnoException & { code?: number | string; stdout?: string; stderr?: string };
+    const failure = error as NodeJS.ErrnoException & {
+      code?: number | string;
+      stdout?: string;
+      stderr?: string;
+    };
     return {
       code: typeof failure.code === 'number' ? failure.code : 1,
       stdout: failure.stdout ?? '',
@@ -109,14 +115,24 @@ export function passingConfig(url: string, overrides: Partial<PulseConfig> = {})
   return {
     preset: 'mobile',
     runs: 1,
+    strict: false,
+    retries: 0,
+    timeoutMs: 120_000,
     urls: [url],
     budgets: {
       lcp: { max: 10_000, regression: 50 },
       cls: { max: 1, regression: 50 },
-      tbt: { max: 1_000, severity: 'warn' },
+      tbt: { max: 1_000, regression: 50, severity: 'warn' },
+      fcp: { max: 10_000, regression: 50 },
+      ttfb: { max: 10_000, regression: 50, severity: 'warn' },
       js: { max: 1_000_000, regression: 50 },
+      css: { max: 1_000_000, regression: 50, severity: 'warn' },
+      fonts: { max: 1_000_000, regression: 50, severity: 'warn' },
       images: { max: 1_000_000, regression: 50 },
+      total: { max: 5_000_000, regression: 50, severity: 'warn' },
       requests: { max: 50, regression: 50 },
+      thirdPartyBytes: { max: 1_000_000, regression: 50, severity: 'warn' },
+      thirdPartyRequests: { max: 50, regression: 50, severity: 'warn' },
       a11y: { maxViolations: 10, maxNew: 5 },
     },
     report: { outDir: '.pulse' },

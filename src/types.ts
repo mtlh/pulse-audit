@@ -1,6 +1,7 @@
 export type Preset = 'mobile' | 'desktop';
 export type Severity = 'error' | 'warn';
 export type Status = 'pass' | 'fail' | 'warn';
+export type A11yImpact = 'critical' | 'serious' | 'moderate' | 'minor';
 
 export interface BudgetRule {
   /** Absolute ceiling. Fails when exceeded (unless it is not also a regression). */
@@ -10,26 +11,53 @@ export interface BudgetRule {
   severity?: Severity;
 }
 
-export interface A11yBudget extends BudgetRule {
+export interface A11yBudget {
+  severity?: Severity;
   /** Maximum total violation nodes. */
   maxViolations?: number;
   /** Maximum violation nodes that were not present in the baseline. */
   maxNew?: number;
+  /** Maximum new violation nodes per axe impact level. */
+  maxNewByImpact?: Partial<Record<A11yImpact, number>>;
+  /** axe rule ids to remove before comparing. */
+  ignoreRules?: string[];
+}
+
+export interface BudgetSet {
+  lcp?: BudgetRule;
+  cls?: BudgetRule;
+  tbt?: BudgetRule;
+  fcp?: BudgetRule;
+  ttfb?: BudgetRule;
+  js?: BudgetRule;
+  css?: BudgetRule;
+  fonts?: BudgetRule;
+  images?: BudgetRule;
+  total?: BudgetRule;
+  requests?: BudgetRule;
+  thirdPartyBytes?: BudgetRule;
+  thirdPartyRequests?: BudgetRule;
+  a11y?: A11yBudget;
+}
+
+export interface PageTarget {
+  url: string;
+  preset?: Preset;
+  runs?: number;
+  budgets?: Partial<BudgetSet>;
 }
 
 export interface PulseConfig {
   preset: Preset;
   runs: number;
-  urls: string[];
-  budgets: {
-    lcp?: BudgetRule;
-    cls?: BudgetRule;
-    tbt?: BudgetRule;
-    js?: BudgetRule;
-    images?: BudgetRule;
-    requests?: BudgetRule;
-    a11y?: A11yBudget;
-  };
+  /** When true an absolute max breach fails even if the metric improved. */
+  strict?: boolean;
+  /** Extra attempts after a failed Lighthouse run. */
+  retries?: number;
+  /** Lighthouse maxWaitForLoad, in milliseconds. */
+  timeoutMs?: number;
+  urls: Array<string | PageTarget>;
+  budgets: BudgetSet;
   report: {
     outDir: string;
   };
@@ -38,12 +66,14 @@ export interface PulseConfig {
 export interface A11yNode {
   selector: string;
   snippet?: string;
+  impact?: A11yImpact;
+  failureSummary?: string;
 }
 
 export interface A11yViolation {
   id: string;
   title: string;
-  impact: string;
+  impact: A11yImpact;
   nodes: A11yNode[];
 }
 
@@ -64,9 +94,16 @@ export interface AuditMetrics {
   lcp: number;
   cls: number;
   tbt: number;
+  fcp: number;
+  ttfb: number;
   js: number;
+  css: number;
+  fonts: number;
   images: number;
+  total: number;
   requests: number;
+  thirdPartyBytes: number;
+  thirdPartyRequests: number;
   violations: number;
 }
 
@@ -81,10 +118,14 @@ export interface AuditResult {
   lcpElement?: LcpElement;
   heaviest: RequestSummary[];
   violations: A11yViolation[];
+  /** One entry per measured run, warm-up excluded. */
+  samples?: AuditMetrics[];
+  /** Top 10 third-party requests by bytes. */
+  thirdPartyHeaviest?: RequestSummary[];
 }
 
 export interface BaselineFile {
-  version: 1;
+  version: 2;
   results: Record<string, AuditResult>;
 }
 
@@ -109,12 +150,17 @@ export interface ReportEntry {
   audit: AuditResult;
   baseline: AuditResult | null;
   checks: Check[];
+  /** Axe rules removed before comparison, shown so suppression stays visible. */
+  ignoredRules?: string[];
+  /** Violation nodes removed by `ignoreRules`. */
+  ignoredViolations?: number;
 }
 
 export interface PulseReport {
   version: string;
   generatedAt: string;
   preset: Preset;
+  presets: Preset[];
   runs: number;
   results: ReportEntry[];
   failed: number;

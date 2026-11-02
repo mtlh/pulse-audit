@@ -28,10 +28,14 @@ describe.skipIf(!enabled || !chrome)('user flow: install the packed package', ()
     const packDir = await makeWorkspace('pulse-pack-');
     workspaces.push(packDir);
 
-    const packed = await runCommand(process.execPath, [npmCli, 'pack', '--json', '--pack-destination', packDir], {
-      cwd: process.cwd(),
-      timeout: 120_000,
-    });
+    const packed = await runCommand(
+      process.execPath,
+      [npmCli, 'pack', '--json', '--pack-destination', packDir],
+      {
+        cwd: process.cwd(),
+        timeout: 120_000,
+      },
+    );
     expect(packed.code).toBe(0);
     const [info] = JSON.parse(packed.stdout) as Array<{ filename: string; files: Array<{ path: string }> }>;
     tarball = path.join(packDir, info.filename);
