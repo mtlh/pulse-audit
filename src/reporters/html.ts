@@ -1,7 +1,26 @@
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { escapeHtml, formatBytes, formatDelta, formatPercent, formatValue, noteworthyReason } from '../format.js';
-import type { Check, PulseReport, ReportEntry } from '../types.js';
+import {
+  escapeHtml,
+  formatBytes,
+  formatDelta,
+  formatPercent,
+  formatValue,
+  noteworthyReason,
+} from '../format.js';
+import type {
+  A11yImpact,
+  A11yViolation,
+  AuditMetrics,
+  Check,
+  PulseReport,
+  ReportEntry,
+  RequestSummary,
+} from '../types.js';
+import { metricSpreads, type MetricStat } from '../util/variance.js';
+import { VERSION } from '../version.js';
+
+const IMPACT_ORDER: A11yImpact[] = ['critical', 'serious', 'moderate', 'minor'];
 
 function statusPill(check: Check): string {
   return `<span class="pill ${check.status}">${check.status}</span>`;
@@ -17,6 +36,16 @@ function deltaCell(check: Check): string {
 function budgetCell(check: Check): string {
   if (check.max === undefined) return '<span class="muted">—</span>';
   return escapeHtml(formatValue(check.max, check.format));
+}
+
+function findCheck(entry: ReportEntry, metric: string): Check | undefined {
+  return entry.checks.find((check) => check.metric === metric);
+}
+
+function metricValue(entry: ReportEntry, metric: 'lcp' | 'cls'): string {
+  const check = findCheck(entry, metric);
+  if (check) return check.formatted;
+  return formatValue(entry.audit.metrics[metric], metric === 'lcp' ? 'ms' : 'score');
 }
 
 function renderChecks(entry: ReportEntry): string {
@@ -58,14 +87,10 @@ function renderLcp(entry: ReportEntry): string {
   </section>`;
 }
 
-function renderRequests(entry: ReportEntry): string {
-  const requests = entry.audit.heaviest;
-  if (requests.length === 0) {
-    return `<section class="card"><h3>Heaviest requests</h3><p class="muted">No requests captured.</p></section>`;
-  }
+function requestList(requests: RequestSummary[], showThirdParty: boolean): string {
   const max = Math.max(...requests.map((request) => request.bytes), 1);
 
-  const rows = requests
+  return requests
     .map((request) => {
       const width = Math.max(2, Math.round((request.bytes / max) * 100));
       let label = request.url;
@@ -79,27 +104,82 @@ function renderRequests(entry: ReportEntry): string {
         <div class="req-top">
           <span class="req-url" title="${escapeHtml(request.url)}">${escapeHtml(label)}</span>
           <span class="req-meta">${escapeHtml(request.resourceType)} · ${formatBytes(request.bytes)}${
-            request.thirdParty ? ' · <span class="third">3rd party</span>' : ''
+            showThirdParty && request.thirdParty ? ' · <span class="third">3rd party</span>' : ''
           }</span>
         </div>
         <div class="bar"><span style="width:${width}%"></span></div>
       </li>`;
     })
     .join('');
+}
+
+function renderRequests(entry: ReportEntry): string {
+  const requests = entry.audit.heaviest;
+  if (requests.length === 0) {
+    return `<section class="card"><h3>Heaviest requests</h3><p class="muted">No requests captured.</p></section>`;
+  }
 
   return `<section class="card">
     <h3>Heaviest requests</h3>
-    <ul class="reqs">${rows}</ul>
+    <ul class="reqs">${requestList(requests, true)}</ul>
   </section>`;
+}
+
+function renderThirdParty(entry: ReportEntry): string {
+  const requests = entry.audit.thirdPartyHeaviest ?? [];
+  const bytes = entry.audit.metrics.thirdPartyBytes;
+  const count = entry.audit.metrics.thirdPartyRequests;
+
+  if (requests.length === 0) {
+    if (bytes <= 0) return '';
+    return `<section class="card"><h3>Third-party requests</h3><p class="muted">${formatBytes(
+      bytes,
+    )} from third-party origins; per-request detail was not captured.</p></section>`;
+  }
+
+  return `<section class="card">
+    <h3>Third-party requests <span class="muted">${count} request${
+      count === 1 ? '' : 's'
+    } · ${formatBytes(bytes)}</span></h3>
+    <ul class="reqs">${requestList(requests, false)}</ul>
+  </section>`;
+}
+
+function impactCounts(violations: A11yViolation[]): Record<A11yImpact, number> {
+  const counts: Record<A11yImpact, number> = { critical: 0, serious: 0, moderate: 0, minor: 0 };
+  for (const violation of violations) {
+    if (violation.nodes.length === 0) {
+      counts[violation.impact] += 1;
+      continue;
+    }
+    for (const node of violation.nodes) {
+      counts[node.impact ?? violation.impact] += 1;
+    }
+  }
+  return counts;
+}
+
+function ignoredNote(entry: ReportEntry): string {
+  if (!entry.ignoredRules || entry.ignoredRules.length === 0) return '';
+  const nodes = entry.ignoredViolations ?? 0;
+  return `<p class="hint">Ignored ${nodes} node${nodes === 1 ? '' : 's'} via <code>ignoreRules</code>: ${entry.ignoredRules
+    .map((rule) => `<code>${escapeHtml(rule)}</code>`)
+    .join(', ')}. Suppressed findings are not gated.</p>`;
 }
 
 function renderA11y(entry: ReportEntry): string {
   const violations = entry.audit.violations;
+  const ignored = ignoredNote(entry);
   if (violations.length === 0) {
-    return `<section class="card"><h3>Accessibility</h3><p class="ok">No axe violations found.</p></section>`;
+    return `<section class="card"><h3>Accessibility</h3><p class="ok">No axe violations found.</p>${ignored}</section>`;
   }
 
-  const nodes = violations.reduce((total, violation) => total + Math.max(violation.nodes.length, 1), 0);
+  const counts = impactCounts(violations);
+  const nodes = IMPACT_ORDER.reduce((total, impact) => total + counts[impact], 0);
+  const impacts = IMPACT_ORDER.filter((impact) => counts[impact] > 0)
+    .map((impact) => `${counts[impact]} ${impact}`)
+    .join(' · ');
+
   const rows = violations
     .map(
       (violation) => `<details class="violation">
@@ -121,19 +201,76 @@ function renderA11y(entry: ReportEntry): string {
     .join('');
 
   return `<section class="card">
-    <h3>Accessibility <span class="muted">${nodes} node${nodes === 1 ? '' : 's'}</span></h3>
+    <h3>Accessibility <span class="muted">${nodes} node${nodes === 1 ? '' : 's'}${
+      impacts ? ` · ${impacts}` : ''
+    }</span></h3>
+    ${ignored}
     ${rows}
   </section>`;
 }
 
-function renderEntry(entry: ReportEntry): string {
+interface SpreadRow {
+  check: Check;
+  stat: MetricStat;
+}
+
+function spreadRows(entry: ReportEntry): SpreadRow[] {
+  const samples = entry.audit.samples;
+  if (!samples || samples.length < 2) return [];
+
+  const spreads = metricSpreads(samples);
+  const rows: SpreadRow[] = [];
+  for (const check of entry.checks) {
+    const stat = spreads[check.metric as keyof AuditMetrics];
+    if (!stat || stat.max === stat.min) continue;
+    rows.push({ check, stat });
+  }
+  return rows;
+}
+
+function measuredRuns(entry: ReportEntry): number {
+  return entry.audit.samples?.length ?? entry.audit.runs;
+}
+
+function renderVariance(entry: ReportEntry): string {
+  const rows = spreadRows(entry);
+  if (rows.length === 0) return '';
+
+  const body = rows
+    .map(
+      ({ check, stat }) => `<tr>
+        <td class="metric">${escapeHtml(check.label)}</td>
+        <td class="value">${escapeHtml(formatValue(stat.min, check.format))}</td>
+        <td class="value">${escapeHtml(formatValue(stat.median, check.format))}</td>
+        <td class="value">${escapeHtml(formatValue(stat.max, check.format))}</td>
+        <td class="muted">${escapeHtml(formatPercent(stat.spreadPct))}</td>
+      </tr>`,
+    )
+    .join('');
+
+  return `<section class="card">
+    <h3>Run variance <span class="muted">${measuredRuns(entry)} runs</span></h3>
+    <table class="checks compact">
+      <thead><tr><th>Metric</th><th>Min</th><th>Median</th><th>Max</th><th>Spread</th></tr></thead>
+      <tbody>${body}</tbody>
+    </table>
+  </section>`;
+}
+
+function renderExtras(entry: ReportEntry): string {
+  const cards = [renderVariance(entry), renderThirdParty(entry)].filter(Boolean);
+  if (cards.length === 0) return '';
+  return `<div class="extras">${cards.join('')}</div>`;
+}
+
+function renderEntry(entry: ReportEntry, index: number): string {
   const meta = [
     entry.audit.preset,
-    `${entry.audit.runs} run${entry.audit.runs === 1 ? '' : 's'}`,
+    `${measuredRuns(entry)} run${measuredRuns(entry) === 1 ? '' : 's'}`,
     entry.baseline ? 'compared to baseline' : 'no baseline',
   ].join(' · ');
 
-  return `<section class="report">
+  return `<section class="report" id="url-${index + 1}">
     <div class="report-head">
       <h2>${escapeHtml(entry.url)}</h2>
       <p class="muted">${escapeHtml(meta)}</p>
@@ -143,7 +280,43 @@ function renderEntry(entry: ReportEntry): string {
       ${renderLcp(entry)}
       ${renderRequests(entry)}
     </div>
+    ${renderExtras(entry)}
     ${renderA11y(entry)}
+  </section>`;
+}
+
+function entryCounts(entry: ReportEntry): { failed: number; warned: number; passed: number } {
+  return {
+    failed: entry.checks.filter((check) => check.status === 'fail').length,
+    warned: entry.checks.filter((check) => check.status === 'warn').length,
+    passed: entry.checks.filter((check) => check.status === 'pass').length,
+  };
+}
+
+function renderCrossSummary(report: PulseReport): string {
+  if (report.results.length <= 1) return '';
+
+  const rows = report.results
+    .map((entry, index) => {
+      const counts = entryCounts(entry);
+      return `<tr>
+        <td class="metric"><a href="#url-${index + 1}">${escapeHtml(entry.url)}</a></td>
+        <td>${escapeHtml(entry.audit.preset)}</td>
+        <td class="num">${counts.failed}</td>
+        <td class="num">${counts.warned}</td>
+        <td class="num">${counts.passed}</td>
+        <td class="value">${escapeHtml(metricValue(entry, 'lcp'))}</td>
+        <td class="value">${escapeHtml(metricValue(entry, 'cls'))}</td>
+      </tr>`;
+    })
+    .join('');
+
+  return `<section class="card cross-card">
+    <h3>Cross-URL summary</h3>
+    <table class="checks cross">
+      <thead><tr><th>URL</th><th>Preset</th><th>Failed</th><th>Warned</th><th>Passed</th><th>LCP</th><th>CLS</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table>
   </section>`;
 }
 
@@ -199,6 +372,12 @@ export function renderHtml(report: PulseReport): string {
   .checks tr:last-child td { border-bottom: none; }
   .checks .metric { font-weight: 600; }
   .checks .value { font-variant-numeric: tabular-nums; }
+  .checks a { color: var(--accent); text-decoration: none; }
+  .checks a:hover { text-decoration: underline; }
+  .checks.compact th { padding: 6px 8px; font-size: 10px; }
+  .checks.compact td { padding: 6px 8px; font-size: 12.5px; }
+  .cross-card { margin-top: 0; }
+  .cross .num { text-align: right; font-variant-numeric: tabular-nums; }
   .notes { margin: 8px 0 0; padding-left: 18px; font-size: 12.5px; color: var(--muted); }
   .notes li { margin-bottom: 3px; }
   .delta.up { color: var(--fail); } .delta.down { color: var(--pass); }
@@ -207,8 +386,10 @@ export function renderHtml(report: PulseReport): string {
   .pill.fail { color: var(--fail); background: color-mix(in srgb, var(--fail) 12%, transparent); }
   .pill.warn { color: var(--warn); background: color-mix(in srgb, var(--warn) 12%, transparent); }
   .grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 14px; margin-top: 14px; }
+  .extras { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 14px; margin-top: 14px; }
   .card { min-width: 0; background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 16px; margin-top: 14px; }
   .grid .card { margin-top: 0; }
+  .extras .card { margin-top: 0; }
   .report-head h2 { overflow-wrap: anywhere; }
   .selector, .rule { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12.5px; background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 2px 6px; overflow-wrap: anywhere; }
   .snippet { background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 10px; font-size: 12px; overflow-x: auto; white-space: pre-wrap; }
@@ -235,9 +416,9 @@ export function renderHtml(report: PulseReport): string {
   footer { margin-top: 40px; padding-top: 14px; border-top: 1px solid var(--border); font-size: 12px; color: var(--muted); }
   @media (max-width: 700px) {
     .grid { grid-template-columns: 1fr; }
-    .checks th:nth-child(3), .checks td:nth-child(3) { display: none; }
+    .report > .checks th:nth-child(3), .report > .checks td:nth-child(3) { display: none; }
     .checks th, .checks td { padding: 10px 8px; }
-    .checks .value, .checks td:nth-child(4) { white-space: nowrap; }
+    .checks .value, .report > .checks td:nth-child(4) { white-space: nowrap; }
     h1 { font-size: 24px; }
   }
 </style>
@@ -247,13 +428,14 @@ export function renderHtml(report: PulseReport): string {
   <header>
     <div class="brand"><span class="dot"></span>pulse audit</div>
     <h1>Performance, accessibility &amp; weight report</h1>
-    <p class="muted">${report.preset} · ${report.runs} run${report.runs === 1 ? '' : 's'} · ${escapeHtml(
-      new Date(report.generatedAt).toLocaleString('en-GB'),
-    )}</p>
+    <p class="muted">${escapeHtml(report.presets.join(', ') || report.preset)} · ${report.runs} run${
+      report.runs === 1 ? '' : 's'
+    } · ${escapeHtml(new Date(report.generatedAt).toLocaleString('en-GB'))}</p>
     <div style="margin-top:14px">${summary}</div>
   </header>
-  ${report.results.map(renderEntry).join('')}
-  <footer>Generated by pulse-audit v${escapeHtml(report.version)} · budgets are compared to the baseline captured on the same preset and run count.</footer>
+  ${renderCrossSummary(report)}
+  ${report.results.map((entry, index) => renderEntry(entry, index)).join('')}
+  <footer>Generated by pulse-audit v${escapeHtml(VERSION)} · report schema v${escapeHtml(report.version)} · budgets are compared to the baseline captured on the same preset and run count.</footer>
 </div>
 </body>
 </html>`;

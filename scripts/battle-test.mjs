@@ -56,7 +56,19 @@ const updateOutput = path.join(work, 'github-output-update.txt');
 const compareOutput = path.join(work, 'github-output-compare.txt');
 const update = await run(
   'ci: update baseline',
-  ['audit', url, '--config', '.pulse.json', '--runs', '3', '--summary', summary, '--github-output', '--update-baseline', '--no-fail'],
+  [
+    'audit',
+    url,
+    '--config',
+    '.pulse.json',
+    '--runs',
+    '3',
+    '--summary',
+    summary,
+    '--github-output',
+    '--update-baseline',
+    '--no-fail',
+  ],
   { GITHUB_OUTPUT: updateOutput, GITHUB_STEP_SUMMARY: summary },
 );
 assert(update.code === 0, 'baseline update failed');
@@ -74,16 +86,22 @@ const audit = report.results[0].audit;
 const checks = report.results[0].checks;
 const deltas = checks.filter((check) => check.delta !== undefined);
 
-// 4. A page that regresses must fail the gate.
+// 4. A page that regresses must fail the gate. Baseline v2 is keyed by preset::url.
 const regressed = JSON.parse(await readFile(path.join(work, '.pulse/baseline.json'), 'utf8'));
-regressed.results[url].metrics.lcp = 1200;
-regressed.results[url].metrics.requests = 10;
+const baselineEntry = regressed.results[`mobile::${url}`];
+assert(baselineEntry, 'baseline v2 entry missing for mobile::url');
+baselineEntry.metrics.lcp = 1200;
+baselineEntry.metrics.requests = 10;
 await writeFile(path.join(work, 'baseline-regressed.json'), JSON.stringify(regressed, null, 2));
 const fail = await run('forced regression', [
-  'audit', url,
-  '--config', '.pulse.json',
-  '--runs', '3',
-  '--baseline', 'baseline-regressed.json',
+  'audit',
+  url,
+  '--config',
+  '.pulse.json',
+  '--runs',
+  '3',
+  '--baseline',
+  'baseline-regressed.json',
 ]);
 assert(fail.code === 1, `expected exit 1 for a regression, got ${fail.code}`);
 const failReport = JSON.parse(await readFile(path.join(work, '.pulse/report.json'), 'utf8'));
@@ -107,19 +125,22 @@ const lines = [
   `| LCP | ${derived.budgets.lcp.max} ms |`,
   `| CLS | ${derived.budgets.cls.max} |`,
   `| TBT | ${derived.budgets.tbt.max} ms (${derived.budgets.tbt.severity}) |`,
+  `| FCP | ${derived.budgets.fcp.max} ms |`,
+  `| TTFB | ${derived.budgets.ttfb.max} ms (${derived.budgets.ttfb.severity}) |`,
   `| JavaScript | ${derived.budgets.js.max} B |`,
+  `| CSS | ${derived.budgets.css.max} B |`,
+  `| Fonts | ${derived.budgets.fonts.max} B |`,
   `| Images | ${derived.budgets.images.max} B |`,
+  `| Total | ${derived.budgets.total.max} B |`,
   `| Requests | ${derived.budgets.requests.max} |`,
+  `| Third-party | ${derived.budgets.thirdPartyBytes.max} B / ${derived.budgets.thirdPartyRequests.max} requests |`,
   `| A11y | ${derived.budgets.a11y.maxViolations} total, ${derived.budgets.a11y.maxNew} new |`,
   '',
   '## Verified run',
   '',
   '| Metric | Value | Budget | Status |',
   '| --- | ---: | ---: | --- |',
-  ...checks.map(
-    (check) =>
-      `| ${check.label} | ${check.formatted} | ${check.max ?? '—'} | ${check.status} |`,
-  ),
+  ...checks.map((check) => `| ${check.label} | ${check.formatted} | ${check.max ?? '—'} | ${check.status} |`),
   '',
   `Report: ${htmlSize} B · deltas: ${deltas.length} · GITHUB_OUTPUT: ${outputText.trim().replace(/\n/g, ', ')}`,
   `Summary contains table: ${summaryText.includes('| Check | Result |')}`,
@@ -145,8 +166,14 @@ const reportPath = path.join(repo, '.pulse/battle-test.md');
 await writeFile(reportPath, lines, 'utf8');
 
 console.log('\n--- battle test summary ---');
-console.log(`LCP ${audit.metrics.lcp.toFixed(0)}ms · CLS ${audit.metrics.cls} · TBT ${audit.metrics.tbt}ms`);
-console.log(`JS ${audit.metrics.js}B · Images ${audit.metrics.images}B · Requests ${audit.metrics.requests}`);
-console.log(`A11y ${audit.metrics.violations} nodes · report ${htmlSize}B · deltas ${deltas.length}`);
+console.log(
+  `LCP ${audit.metrics.lcp.toFixed(0)}ms · CLS ${audit.metrics.cls} · TBT ${audit.metrics.tbt}ms · FCP ${audit.metrics.fcp.toFixed(0)}ms · TTFB ${audit.metrics.ttfb.toFixed(0)}ms`,
+);
+console.log(
+  `JS ${audit.metrics.js}B · CSS ${audit.metrics.css}B · Fonts ${audit.metrics.fonts}B · Images ${audit.metrics.images}B · Total ${audit.metrics.total}B · Requests ${audit.metrics.requests}`,
+);
+console.log(
+  `Third-party ${audit.metrics.thirdPartyBytes}B / ${audit.metrics.thirdPartyRequests} requests · A11y ${audit.metrics.violations} nodes · report ${htmlSize}B · deltas ${deltas.length}`,
+);
 console.log(`forced regression exit ${fail.code} with ${failReport.failed} failed checks`);
 console.log(`report written to ${reportPath}`);

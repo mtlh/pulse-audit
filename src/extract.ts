@@ -1,4 +1,13 @@
-import type { A11yViolation, AuditResult, LcpElement, Preset, RequestSummary } from './types.js';
+import { countViolationNodes } from './compare.js';
+import type {
+  A11yImpact,
+  A11yNode,
+  A11yViolation,
+  AuditResult,
+  LcpElement,
+  Preset,
+  RequestSummary,
+} from './types.js';
 
 /**
  * Lighthouse's LHR is enormous and changes shape between minor versions.
@@ -6,6 +15,20 @@ import type { A11yViolation, AuditResult, LcpElement, Preset, RequestSummary } f
  * Lighthouse version before changing anything here.
  */
 type Lhr = Record<string, any>;
+
+const IMPACT_ORDER: A11yImpact[] = ['critical', 'serious', 'moderate', 'minor'];
+
+export function isA11yImpact(value: unknown): value is A11yImpact {
+  return value === 'critical' || value === 'serious' || value === 'moderate' || value === 'minor';
+}
+
+/** Worst (most severe) impact, defaulting to `serious` like axe/Lighthouse. */
+export function worstImpact(impacts: Array<A11yImpact | undefined>): A11yImpact {
+  for (const impact of IMPACT_ORDER) {
+    if (impacts.includes(impact)) return impact;
+  }
+  return 'serious';
+}
 
 function numeric(lhr: Lhr, auditId: string): number {
   const value = lhr.audits?.[auditId]?.numericValue;
@@ -32,9 +55,12 @@ function extractRequests(lhr: Lhr, pageUrl: string): RequestSummary[] {
     }));
 }
 
-function sumBytes(requests: RequestSummary[], resourceType: string): number {
+function sumBytes(requests: RequestSummary[], resourceType?: string): number {
   return requests
-    .filter((request) => request.resourceType.toLowerCase() === resourceType.toLowerCase())
+    .filter(
+      (request) =>
+        resourceType === undefined || request.resourceType.toLowerCase() === resourceType.toLowerCase(),
+    )
     .reduce((total, request) => total + request.bytes, 0);
 }
 
@@ -67,19 +93,27 @@ function extractViolations(lhr: Lhr): A11yViolation[] {
     if (typeof audit.score !== 'number' || audit.score >= 1) continue;
 
     const items: any[] = audit.details?.items ?? [];
-    const nodes = items
-      .map((item) => ({
-        selector: (item?.node?.selector ?? item?.selector ?? '') as string,
-        snippet: (item?.node?.snippet ?? item?.snippet ?? undefined) as string | undefined,
-        impact: (item?.node?.impact ?? undefined) as string | undefined,
-      }))
+    const nodes: A11yNode[] = items
+      .map((item) => {
+        const rawImpact = item?.node?.impact ?? item?.impact;
+        const failureSummary = item?.node?.failureSummary ?? item?.failureSummary;
+        return {
+          selector: (item?.node?.selector ?? item?.selector ?? '') as string,
+          snippet: (item?.node?.snippet ?? item?.snippet ?? undefined) as string | undefined,
+          impact: isA11yImpact(rawImpact) ? rawImpact : undefined,
+          failureSummary:
+            typeof failureSummary === 'string' && failureSummary.trim().length > 0
+              ? failureSummary
+              : undefined,
+        };
+      })
       .filter((node) => node.selector.length > 0);
 
     violations.push({
       id: (audit.id ?? ref.id) as string,
       title: (audit.title ?? ref.id) as string,
-      impact: nodes.find((node) => node.impact)?.impact ?? 'serious',
-      nodes: nodes.map(({ selector, snippet }) => ({ selector, snippet })),
+      impact: worstImpact(nodes.map((node) => node.impact)),
+      nodes,
     });
   }
 
@@ -89,6 +123,7 @@ function extractViolations(lhr: Lhr): A11yViolation[] {
 export function extractResult(lhr: Lhr, url: string, preset: Preset, runs: number): AuditResult {
   const requests = extractRequests(lhr, url);
   const violations = extractViolations(lhr);
+  const thirdPartyRequests = requests.filter((request) => request.thirdParty);
 
   return {
     url,
@@ -96,18 +131,27 @@ export function extractResult(lhr: Lhr, url: string, preset: Preset, runs: numbe
     runs,
     capturedAt: new Date().toISOString(),
     lighthouseVersion: typeof lhr.lighthouseVersion === 'string' ? lhr.lighthouseVersion : undefined,
-    chromeVersion: typeof lhr.environment?.hostUserAgent === 'string' ? lhr.environment.hostUserAgent : undefined,
+    chromeVersion:
+      typeof lhr.environment?.hostUserAgent === 'string' ? lhr.environment.hostUserAgent : undefined,
     metrics: {
       lcp: numeric(lhr, 'largest-contentful-paint'),
       cls: numeric(lhr, 'cumulative-layout-shift'),
       tbt: numeric(lhr, 'total-blocking-time'),
+      fcp: numeric(lhr, 'first-contentful-paint'),
+      ttfb: numeric(lhr, 'server-response-time'),
       js: sumBytes(requests, 'Script'),
+      css: sumBytes(requests, 'Stylesheet'),
+      fonts: sumBytes(requests, 'Font'),
       images: sumBytes(requests, 'Image'),
+      total: sumBytes(requests),
       requests: requests.length,
-      violations: violations.reduce((total, violation) => total + Math.max(violation.nodes.length, 1), 0),
+      thirdPartyBytes: sumBytes(thirdPartyRequests),
+      thirdPartyRequests: thirdPartyRequests.length,
+      violations: countViolationNodes({ violations }),
     },
     lcpElement: extractLcpElement(lhr),
     heaviest: [...requests].sort((a, b) => b.bytes - a.bytes).slice(0, 10),
     violations,
+    thirdPartyHeaviest: [...thirdPartyRequests].sort((a, b) => b.bytes - a.bytes).slice(0, 10),
   };
 }
