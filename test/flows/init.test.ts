@@ -79,6 +79,25 @@ describe('user flow: initialise a project', () => {
     expect(result.stderr).toContain('pulse init');
   });
 
+  it('rejects an audit URL that is not http(s) before launching Chrome', async () => {
+    const dir = await workspace();
+    await writeConfig(dir, {
+      preset: 'mobile',
+      runs: 1,
+      strict: false,
+      retries: 0,
+      timeoutMs: 120_000,
+      urls: ['https://example.com/'],
+      budgets: {},
+      report: { outDir: '.pulse' },
+    });
+
+    const result = await runCli(['audit', 'ftp://example.com/'], { cwd: dir });
+
+    expect(result.code).toBe(2);
+    expect(result.stderr).toContain('must use http:// or https://');
+  });
+
   it('reports a bad budget with the exact path instead of crashing', async () => {
     const dir = await workspace();
     await writeFile(
@@ -109,11 +128,14 @@ describe('user flow: initialise a project', () => {
 
   it('reports the version from package.json', async () => {
     const dir = await workspace();
+    const pkg = JSON.parse(await readFile(new URL('../../package.json', import.meta.url), 'utf8')) as {
+      version: string;
+    };
 
     const result = await runCli(['--version'], { cwd: dir });
 
     expect(result.code).toBe(0);
-    expect(result.stdout.trim()).toBe('0.1.0');
+    expect(result.stdout.trim()).toBe(pkg.version);
   });
 
   it('shows and prunes baseline entries that left the config', async () => {

@@ -16,14 +16,15 @@ import {
 
 const enabled = process.env.PULSE_E2E === '1' && process.env.PULSE_PACKAGE === '1';
 const chrome = chromeAvailable();
-const npmCli = findNpmCli();
 
 describe.skipIf(!enabled || !chrome)('user flow: install the packed package', () => {
   let site: FixtureSite;
   const workspaces: string[] = [];
   let tarball = '';
+  let npmCli = '';
 
   beforeAll(async () => {
+    npmCli = findNpmCli();
     site = await startFixture();
     const packDir = await makeWorkspace('pulse-pack-');
     workspaces.push(packDir);
@@ -85,9 +86,12 @@ describe.skipIf(!enabled || !chrome)('user flow: install the packed package', ()
     await expect(access(packageCli)).resolves.toBeUndefined();
     await expect(access(binShim)).resolves.toBeUndefined();
 
+    const pkg = JSON.parse(await readFile(new URL('../../package.json', import.meta.url), 'utf8')) as {
+      version: string;
+    };
     const version = await runCommand(process.execPath, [packageCli, '--version'], { cwd: consumer });
     expect(version.code).toBe(0);
-    expect(version.stdout.trim()).toBe('0.1.0');
+    expect(version.stdout.trim()).toBe(pkg.version);
 
     const initialized = await runCommand(process.execPath, [packageCli, 'init', site.url], {
       cwd: consumer,

@@ -3,6 +3,7 @@ import type { Check } from './types.js';
 export type ValueFormat = 'ms' | 'score' | 'bytes' | 'count';
 
 export function formatValue(value: number, format: ValueFormat): string {
+  if (!Number.isFinite(value)) return '—';
   switch (format) {
     case 'ms':
       return value >= 1000 ? `${(value / 1000).toFixed(2)}s` : `${Math.round(value)}ms`;
@@ -23,18 +24,34 @@ export function formatBytes(bytes: number): string {
 }
 
 export function formatDelta(delta: number | undefined, format: ValueFormat): string {
-  if (delta === undefined) return '—';
+  if (delta === undefined || !Number.isFinite(delta)) return '—';
   const sign = delta > 0 ? '+' : '';
   if (format === 'ms') {
     return `${sign}${delta >= 1000 || delta <= -1000 ? `${(delta / 1000).toFixed(2)}s` : `${Math.round(delta)}ms`}`;
   }
   if (format === 'bytes') {
-    return `${sign}${formatBytes(Math.abs(delta))}`;
+    // formatBytes only renders positive values, so the minus has to be added
+    // explicitly or an improvement reads as a regression in the report.
+    return `${delta < 0 ? '-' : sign}${formatBytes(Math.abs(delta))}`;
   }
   if (format === 'score') {
     return `${sign}${delta.toFixed(3)}`;
   }
   return `${sign}${Math.round(delta)}`;
+}
+
+/** `1.48–1.61s` rather than `1.48s–1.61s` when both ends share a unit. */
+export function formatRange(min: number, max: number, format: ValueFormat): string {
+  const minText = formatValue(min, format);
+  const maxText = formatValue(max, format);
+  if (format === 'ms' || format === 'bytes') {
+    const minParts = /^([\d.]+)( ?[A-Za-z]+)$/.exec(minText);
+    const maxParts = /^([\d.]+)( ?[A-Za-z]+)$/.exec(maxText);
+    if (minParts && maxParts && minParts[2] === maxParts[2]) {
+      return `${minParts[1]}–${maxText}`;
+    }
+  }
+  return `${minText}–${maxText}`;
 }
 
 export function formatPercent(value: number | undefined): string {

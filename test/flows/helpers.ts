@@ -16,7 +16,7 @@ export interface CliResult {
 }
 
 export function chromeAvailable(): boolean {
-  if (process.env.CHROME_PATH) return true;
+  if (process.env.CHROME_PATH) return existsSync(process.env.CHROME_PATH);
   try {
     return Launcher.getInstallations().length > 0;
   } catch {

@@ -10,6 +10,7 @@ import type {
   Severity,
   Status,
 } from './types.js';
+import { IMPACT_ORDER } from './util/a11y.js';
 
 interface MetricSpec {
   key: Exclude<keyof AuditMetrics, 'violations'>;
@@ -33,8 +34,6 @@ const METRIC_SPECS: MetricSpec[] = [
   { key: 'thirdPartyBytes', label: 'Third-party bytes', format: 'bytes', defaultSeverity: 'warn' },
   { key: 'thirdPartyRequests', label: 'Third-party requests', format: 'count', defaultSeverity: 'warn' },
 ];
-
-const IMPACT_ORDER: A11yImpact[] = ['critical', 'serious', 'moderate', 'minor'];
 
 function normalizeText(value: string | undefined): string {
   return (value ?? '').replace(/\s+/g, ' ').trim();
@@ -217,7 +216,7 @@ function evaluateMetric(
   if (!rule || (rule.max === undefined && rule.regression === undefined)) return null;
 
   const value = current.metrics[metric.key];
-  const baselineValue = baseline?.metrics[metric.key];
+  const baselineValue = baseline?.metrics?.[metric.key];
   const delta = baselineValue === undefined ? undefined : value - baselineValue;
   const deltaPct =
     baselineValue !== undefined && baselineValue > 0 && delta !== undefined
@@ -231,12 +230,27 @@ function evaluateMetric(
   // In strict mode an absolute budget is a hard ceiling: being better than the
   // baseline does not excuse being over it. Warnings stay warnings.
   const strictAbsoluteBreach = config.strict === true && absoluteBreach && severity === 'error';
+  // The ratchet only applies when the baseline actually recorded this metric and
+  // the change can be expressed as a percentage. A v1 baseline (or a zero
+  // baseline value) has no usable comparison, so it must behave like no baseline
+  // instead of excusing an absolute breach.
+  const ratchetPass =
+    absoluteBreach &&
+    !regressionBreach &&
+    baselineValue !== undefined &&
+    deltaPct !== undefined &&
+    severity === 'error' &&
+    !strictAbsoluteBreach;
 
+  const regressionEvaluable = rule.regression !== undefined && deltaPct !== undefined;
   let status: Status = 'pass';
-  let reason = 'within budget';
+  let reason =
+    rule.max === undefined && !regressionEvaluable
+      ? 'no comparable baseline; regression not evaluated'
+      : 'within budget';
 
   if (absoluteBreach || regressionBreach) {
-    if (absoluteBreach && !regressionBreach && baseline && severity === 'error' && !strictAbsoluteBreach) {
+    if (ratchetPass) {
       // Ratchet behaviour: already over budget before this change. Do not block
       // the PR, but the report still makes the overshoot visible. Warnings stay
       // warnings so noisy metrics remain visible without failing the build.

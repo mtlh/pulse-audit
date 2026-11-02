@@ -29,7 +29,7 @@ export function reportEntry(input: ReportInput): ReportEntry {
 
   if (ignoreRules && ignoreRules.length > 0) {
     const ignored = input.result.violations.filter((violation) => ignoreRules.includes(violation.id));
-    entry.ignoredRules = [...ignoreRules];
+    entry.ignoredRules = [...new Set(ignoreRules)];
     entry.ignoredViolations = countViolationNodes({ violations: ignored });
   }
 

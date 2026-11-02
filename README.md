@@ -130,7 +130,8 @@ are percentages (`10` or `"10%"`); CLS and counts are numbers.
 - `urls` entries may be plain strings or objects with `preset`, `runs` and `budgets`
   overrides. Page budgets deep-merge over the global block.
 - `strict: true` makes an absolute `max` breach fail even when the metric improved versus
-  the baseline. Warnings stay warnings.
+  the baseline. Warnings stay warnings. Without `strict`, an `error` rule that is over `max`
+  but improving passes as a ratchet; a `warn` rule still reports a warning.
 - `retries` is the number of extra attempts after a failed Lighthouse run (default `1`).
 - `timeoutMs` maps to Lighthouse `maxWaitForLoad` (default `120000`).
 - A rule must set `max` or `regression`; an accessibility rule must set `maxViolations`,
@@ -140,8 +141,8 @@ Metrics: LCP, CLS, TBT, FCP, TTFB, JavaScript, CSS, fonts, images, total transfe
 requests, third-party bytes, third-party requests, and accessibility violations. Each audit
 also stores one sample per measured run so the report can show min/median/max spread.
 
-Read [docs/budgets.md](./docs/budgets.md) for the exact pass/fail semantics, impact buckets
-and `ignoreRules`.
+Read [docs/budgets.md](https://github.com/mtlh/pulse-audit/blob/main/docs/budgets.md) for the
+exact pass/fail semantics, impact buckets and `ignoreRules`.
 
 ## CLI
 
@@ -182,8 +183,8 @@ pulse doctor                Check Node, Chrome, config, baseline, report dir and
 ```
 
 `--json` keeps stdout machine-readable: the report is the only thing printed there, while
-progress, paths and warnings go to stderr. `--quiet` suppresses the table and paths but keeps
-errors and a failure line; JSON output still prints.
+progress, paths and warnings go to stderr. `--quiet` suppresses the table, paths and warnings
+but keeps errors and a failure line; JSON output still prints.
 
 ### Exit codes
 
@@ -265,14 +266,17 @@ result.
 src/
   cli.ts            command wiring
   doctor.ts         environment and project checks
+  chrome.ts         Chrome/WSL detection and fallbacks
   version.ts        version read from package.json
-  config.ts         zod schema, units and defaults
+  config.ts         zod schema, units, defaults and per-URL resolution
   runner.ts         chrome-launcher + Lighthouse, median of N
   extract.ts        LHR → the metrics Pulse cares about
   compare.ts        budget + baseline evaluation
   report.ts         report assembly
   baseline.ts       baseline read/write/migration, comparability
-  reporters/        terminal, JSON, Markdown, self-contained HTML
+  format.ts         value formatting and HTML escaping
+  reporters/        terminal, JSON, Markdown, self-contained HTML, shared spread
+  util/             units, median, variance and impact ordering
 test/               unit tests + CLI/user flows
 ```
 

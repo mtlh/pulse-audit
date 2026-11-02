@@ -1,38 +1,14 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
-import { formatDelta, formatPercent, formatValue, noteworthyReason, type ValueFormat } from '../format.js';
-import type { AuditMetrics, PulseReport, ReportEntry } from '../types.js';
-import { metricSpreads } from '../util/variance.js';
+import { formatDelta, formatPercent, formatValue, noteworthyReason } from '../format.js';
+import type { PulseReport, ReportEntry } from '../types.js';
+import { spreadParts } from './spread.js';
 
 const SUMMARY_START = '<!-- pulse:start -->';
 const SUMMARY_END = '<!-- pulse:end -->';
 
-/** `1.48–1.61s` rather than `1.48s–1.61s` when both ends share a unit. */
-function formatRange(min: number, max: number, format: ValueFormat): string {
-  const minText = formatValue(min, format);
-  const maxText = formatValue(max, format);
-  if (format === 'ms' || format === 'bytes') {
-    const minParts = /^([\d.]+)( ?[A-Za-z]+)$/.exec(minText);
-    const maxParts = /^([\d.]+)( ?[A-Za-z]+)$/.exec(maxText);
-    if (minParts && maxParts && minParts[2] === maxParts[2]) {
-      return `${minParts[1]}–${maxText}`;
-    }
-  }
-  return `${minText}–${maxText}`;
-}
-
 function spreadLine(entry: ReportEntry): string | undefined {
-  const samples = entry.audit.samples;
-  if (!samples || samples.length < 2) return undefined;
-
-  const spreads = metricSpreads(samples);
-  const parts: string[] = [];
-  for (const check of entry.checks) {
-    const stat = spreads[check.metric as keyof AuditMetrics];
-    if (!stat || stat.max === stat.min) continue;
-    parts.push(`${check.label} ${formatRange(stat.min, stat.max, check.format)}`);
-  }
-
+  const parts = spreadParts(entry);
   return parts.length > 0 ? `**Run spread**: ${parts.join(' · ')}` : undefined;
 }
 
@@ -102,6 +78,19 @@ export async function upsertSummary(path: string, markdown: string): Promise<voi
 
   const start = existing.indexOf(SUMMARY_START);
   const end = start === -1 ? -1 : existing.indexOf(SUMMARY_END, start + SUMMARY_START.length);
+
+  // Never truncate a hand-edited file just because one marker is missing: the
+  // user may have content after the start marker that must survive.
+  if (start !== -1 && end === -1) {
+    throw new Error(
+      `Found ${SUMMARY_START} without a matching ${SUMMARY_END} in ${path}. Fix the markers and re-run.`,
+    );
+  }
+  if (start === -1 && existing.includes(SUMMARY_END)) {
+    throw new Error(
+      `Found ${SUMMARY_END} without a matching ${SUMMARY_START} in ${path}. Fix the markers and re-run.`,
+    );
+  }
 
   let before = start === -1 ? existing : existing.slice(0, start);
   let after = end === -1 ? '' : existing.slice(end + SUMMARY_END.length);
