@@ -6,8 +6,9 @@ Pulse audits a deployed URL, compares the result to your last green `main` build
 the pull request only when something got worse — with a report that names the element,
 request or axe rule responsible.
 
-> **Status: v0.1.0.** Published on npm as `@mtlh/pulse-audit`. The Lighthouse path, baseline
-> flow, HTML report, CLI flows and packed install are verified locally. Use it through `npx`.
+> **Status: v0.1.0 submitted to npm.** Public repo: `github.com/mtlh/pulse-audit`. npm has
+> placed `@mtlh/pulse-audit@0.1.0` in staged-release review and published a temporary
+> `0.0.0-stage` holding version; `npx @mtlh/pulse-audit` becomes usable when npm approves it.
 
 ## Why another performance tool
 

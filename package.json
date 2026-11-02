@@ -23,7 +23,7 @@
     "ci"
   ],
   "bin": {
-    "pulse": "./dist/cli.js"
+    "pulse": "dist/cli.js"
   },
   "exports": {
     ".": {

@@ -6,8 +6,9 @@ to verify it.
 
 - **Location:** `C:\Users\matth\Downloads\pulse-audit`
 - **Owner:** Matthew Harvey (`github.com/mtlh`)
-- **Status:** v0.1.0, published on npm as `@mtlh/pulse-audit`; npx-first, no composite action
-- **Git:** `main`, pushed to `github.com/mtlh/pulse-audit`, tagged `v0.1.0`
+- **Status:** v0.1.0 submitted to npm; `@mtlh/pulse-audit@0.0.0-stage` holding version live,
+  operational version awaiting npm staged-release review
+- **Git:** `main` pushed to `github.com/mtlh/pulse-audit`; `v0.1.0` tagged
 - **Related portfolio:** `C:\Users\matth\Downloads\PortfolioV2`
 
 ---
@@ -64,7 +65,7 @@ a11y gating, and a report that diagnoses instead of scoring.
 | Unit tests | Done | pure functions + flow contracts |
 | Integration tests / fixture site | **Verified** | deterministic fixture + 13 CLI flows; `PULSE_E2E=1` |
 | Docs | Updated | budgets, action, quick start, test commands |
-| npm publish | Not done | |
+| npm publish | **Submitted** | 0.1.0 in staged-release review; 0.0.0-stage holding version live |
 | PR comment | Not done | step summary only |
 
 `npm install` has been run and `package-lock.json` is present. `npm run typecheck`,
@@ -275,13 +276,13 @@ still runs `npm run test:e2e`; consumers call the CLI from their own runner.
 - README GIF: failing audit → failing PR → report.
 - `npm pack --dry-run`; confirm only `dist`, `README.md` and `LICENSE` ship.
 - Add `repository`, `homepage`, `bugs`, `keywords` to `package.json`.
-- `npm publish --provenance --access public`.
+- `npm publish --access public` (already submitted; npm staged-release review).
 - Tag `v0.1.0`; Marketplace release for the action.
 - **Acceptance:** `npx @mtlh/pulse-audit@0.1.0 --version` works on a clean machine.
 
 ### Step 8 — Dogfood
 
-- Add `.github/workflows/pulse.yml` to `PortfolioV2` calling the published action.
+- Add a PortfolioV2 CI step that runs `npx @mtlh/pulse-audit audit`.
 - Baseline `main`, then open a throwaway PR that adds a large image.
 - Record the before/after numbers for the portfolio case study.
 - **Acceptance:** the portfolio PR fails for the right reason, and the report explains why.
@@ -400,7 +401,8 @@ self-host the GitHub chart, then re-baseline and tighten `requests` from 90 to ~
 - [ ] No false failures across 20 identical CI runs.
 - [x] No composite action; npx is the delivery path.
 - [ ] README has a working quick start and a GIF.
-- [x] `npm pack` is clean (dist, README, LICENSE only); published on npm; tagged `v0.1.0`.
+- [x] `npm pack` is clean (dist, README, LICENSE only); `0.1.0` submitted to npm (staged
+  review); repo tagged `v0.1.0`.
 - [ ] PortfolioV2 runs the action and has before/after numbers.
 
 ---
@@ -408,7 +410,8 @@ self-host the GitHub chart, then re-baseline and tighten `requests` from 90 to ~
 ## 11. Copy-paste brief for the next agent
 
 > You are continuing `pulse-audit` at `C:\Users\matth\Downloads\pulse-audit`. Read
-> `HANDOFF.md` first. Steps 1–4 are complete and v0.1.0 is published on npm. The delivery path is
+> `HANDOFF.md` first. Steps 1-4 are complete. v0.1.0 is tagged and submitted to npm; the
+> package is in staged-release review (0.0.0-stage holding version is public). The delivery path is
 > `npx @mtlh/pulse-audit`; there is no composite action. `npm run test:e2e` runs the 13 flow tests
 > (including a packed install) and `npm run battle-test` exercises the live portfolio. Your next
 > jobs are Step 5 (flakiness/variance) and Step 7 (README GIF, tag maintenance). Use
