@@ -94,6 +94,21 @@ pulse audit [url]           Audit and compare
 
 Exit codes: `0` pass, `1` budget failure, `2` tool or config error.
 
+## Releasing
+
+Bump `version` in `package.json`, commit, and push to `main`:
+
+```bash
+npm version patch --no-git-tag-version
+git commit -am "v$(node -p "require('./package.json').version")"
+git push
+```
+
+`.github/workflows/release.yml` runs the checks, publishes only if that version is not already
+on npm, waits for the registry, then creates the matching Git tag and GitHub release. The
+workflow needs an `NPM_TOKEN` repository secret with publish rights to `@mtlh`. If npm stages
+the version for review, approve it on npmjs.com and re-run the workflow.
+
 ## Testing
 
 ```bash

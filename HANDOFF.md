@@ -65,6 +65,7 @@ a11y gating, and a report that diagnoses instead of scoring.
 | Integration tests / fixture site | **Verified** | deterministic fixture + 13 CLI flows; `PULSE_E2E=1` |
 | Docs | Updated | budgets, action, quick start, test commands |
 | npm publish | **Live** | `@mtlh/pulse-audit@0.1.0`; `npx` verified |
+| Release workflow | **Added** | main push → publish new version → tag/release |
 | PR comment | Not done | step summary only |
 
 `npm install` has been run and `package-lock.json` is present. `npm run typecheck`,
@@ -329,6 +330,10 @@ still runs `npm run test:e2e`; consumers call the CLI from their own runner.
 
 - The package is published as `@mtlh/pulse-audit`; the binary is `pulse`. Consumers should run
   `npx @mtlh/pulse-audit@0.1.0 ...`.
+- `.github/workflows/release.yml` publishes from `main` only when `package.json` has a version
+  not already on npm, waits for registry propagation, then tags and creates a GitHub release.
+  It requires the `NPM_TOKEN` repository secret (or trusted publishing configured on npm).
+  If npm stages the version, approve it on npmjs.com and re-run the workflow.
 - No composite action ships. Keep it that way unless the owner asks for one again.
 - A missing baseline is not fatal: the first run records inherited debt and `--update-baseline`
   seeds it. Pull-request runs compare against the saved file.
