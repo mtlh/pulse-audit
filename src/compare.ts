@@ -224,6 +224,7 @@ function evaluateMetric(
       : undefined;
 
   const absoluteBreach = rule.max !== undefined && value > rule.max;
+  const regressionEvaluable = rule.regression !== undefined && deltaPct !== undefined;
   const regressionBreach =
     rule.regression !== undefined && deltaPct !== undefined && deltaPct > rule.regression;
   const severity = rule.severity ?? metric.defaultSeverity;
@@ -234,15 +235,18 @@ function evaluateMetric(
   // the change can be expressed as a percentage. A v1 baseline (or a zero
   // baseline value) has no usable comparison, so it must behave like no baseline
   // instead of excusing an absolute breach.
+  //
+  // Without a regression tolerance there is no "within tolerance" excuse, so
+  // inherited debt only ratchets through when the metric did not get worse.
+  const improvedOrFlat = delta !== undefined && delta <= 0;
   const ratchetPass =
     absoluteBreach &&
     !regressionBreach &&
     baselineValue !== undefined &&
     deltaPct !== undefined &&
     severity === 'error' &&
-    !strictAbsoluteBreach;
-
-  const regressionEvaluable = rule.regression !== undefined && deltaPct !== undefined;
+    !strictAbsoluteBreach &&
+    (regressionEvaluable || improvedOrFlat);
   let status: Status = 'pass';
   let reason =
     rule.max === undefined && !regressionEvaluable

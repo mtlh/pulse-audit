@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { countViolationNodes } from '../src/compare.js';
-import { pickMedianRun } from '../src/runner.js';
+import { pickMedianRun, runAudit } from '../src/runner.js';
 import type { A11yViolation, AuditMetrics, AuditResult } from '../src/types.js';
 
 const BASE_METRICS: AuditMetrics = {
@@ -219,5 +219,13 @@ describe('pickMedianRun', () => {
 
     expect(picked.violations[0].nodes[0].impact).toBe('critical');
     expect(picked.violations[0].impact).toBe('critical');
+  });
+});
+
+describe('runAudit', () => {
+  it('rejects an invalid run count before launching Chrome', async () => {
+    await expect(runAudit('https://example.com/', { preset: 'mobile', runs: 0 })).rejects.toThrow(
+      /runs must be a positive integer/,
+    );
   });
 });

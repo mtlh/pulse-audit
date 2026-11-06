@@ -1,5 +1,6 @@
 import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import { countViolationNodes, countViolationNodesByImpact } from '../compare.js';
 import {
   escapeHtml,
   formatBytes,
@@ -136,16 +137,14 @@ function renderThirdParty(entry: ReportEntry): string {
   </section>`;
 }
 
+/**
+ * Counts violation nodes with the same identity and de-duplication rules as the
+ * gate, so the summary card cannot claim a different total from the check table.
+ */
 function impactCounts(violations: A11yViolation[]): Record<A11yImpact, number> {
-  const counts: Record<A11yImpact, number> = { critical: 0, serious: 0, moderate: 0, minor: 0 };
-  for (const violation of violations) {
-    if (violation.nodes.length === 0) {
-      counts[violation.impact] += 1;
-      continue;
-    }
-    for (const node of violation.nodes) {
-      counts[node.impact ?? violation.impact] += 1;
-    }
+  const counts = {} as Record<A11yImpact, number>;
+  for (const impact of IMPACT_ORDER) {
+    counts[impact] = countViolationNodesByImpact({ violations }, impact);
   }
   return counts;
 }
@@ -166,7 +165,7 @@ function renderA11y(entry: ReportEntry): string {
   }
 
   const counts = impactCounts(violations);
-  const nodes = IMPACT_ORDER.reduce((total, impact) => total + counts[impact], 0);
+  const nodes = countViolationNodes({ violations });
   const impacts = IMPACT_ORDER.filter((impact) => counts[impact] > 0)
     .map((impact) => `${counts[impact]} ${impact}`)
     .join(' · ');

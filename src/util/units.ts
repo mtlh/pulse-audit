@@ -8,6 +8,11 @@
 
 const NUMBER = String.raw`[+-]?(?:\d+(?:\.\d*)?|\.\d+)`;
 
+const DURATION = new RegExp(`^(${NUMBER})\\s*(ms|s|m)?$`, 'i');
+const BYTES = new RegExp(`^(${NUMBER})\\s*(b|kb|kib|mb|mib|gb|gib|tb|tib)?$`, 'i');
+const PERCENT = new RegExp(`^(${NUMBER})\\s*%?$`, 'i');
+const PLAIN_NUMBER = new RegExp(`^(${NUMBER})$`, 'i');
+
 function finite(value: string): number | null {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : null;
@@ -18,7 +23,7 @@ export function parseDuration(value: unknown): unknown {
   if (typeof value === 'number') return value;
   if (typeof value !== 'string') return value;
 
-  const match = new RegExp(`^(${NUMBER})\\s*(ms|s|m)?$`, 'i').exec(value.trim());
+  const match = DURATION.exec(value.trim());
   if (!match) return value;
 
   const amount = finite(match[1]);
@@ -51,7 +56,7 @@ export function parseBytes(value: unknown): unknown {
   if (typeof value === 'number') return value;
   if (typeof value !== 'string') return value;
 
-  const match = new RegExp(`^(${NUMBER})\\s*(b|kb|kib|mb|mib|gb|gib|tb|tib)?$`, 'i').exec(value.trim());
+  const match = BYTES.exec(value.trim());
   if (!match) return value;
 
   const amount = finite(match[1]);
@@ -66,7 +71,7 @@ export function parsePercent(value: unknown): unknown {
   if (typeof value === 'number') return value;
   if (typeof value !== 'string') return value;
 
-  const match = new RegExp(`^(${NUMBER})\\s*%?$`, 'i').exec(value.trim());
+  const match = PERCENT.exec(value.trim());
   if (!match) return value;
 
   const amount = finite(match[1]);
@@ -78,7 +83,7 @@ export function parseScore(value: unknown): unknown {
   if (typeof value === 'number') return value;
   if (typeof value !== 'string') return value;
 
-  const match = new RegExp(`^(${NUMBER})$`, 'i').exec(value.trim());
+  const match = PLAIN_NUMBER.exec(value.trim());
   if (!match) return value;
 
   const amount = finite(match[1]);

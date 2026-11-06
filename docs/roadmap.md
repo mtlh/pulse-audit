@@ -29,6 +29,10 @@ fine; the decision layer needs to get harder to fool.
 
 ## 2. Gap analysis
 
+> This section is a snapshot taken before v0.2 shipped, kept to show why the work was
+> prioritised. Many of the gaps below are now closed; section 3 is the current status.
+> Line references point at the pre-v0.2 tree and may have drifted.
+
 ### 2.1 Correctness and trust
 
 | #   | Gap                                                                                                                                                                     | Why it matters                                                                                                                               | Priority | Effort |

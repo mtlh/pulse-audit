@@ -107,6 +107,11 @@ describe('config', () => {
     expect(parsed.budgets.requests?.regression).toBe(10);
   });
 
+  it('rejects an unbounded retry count', () => {
+    expect(configSchema.safeParse({ urls: ['https://example.com/'], retries: 10 }).success).toBe(true);
+    expect(configSchema.safeParse({ urls: ['https://example.com/'], retries: 11 }).success).toBe(false);
+  });
+
   it('rejects a metric rule with neither max nor regression', () => {
     const parsed = configSchema.safeParse({
       urls: ['https://example.com/'],

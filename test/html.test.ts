@@ -223,6 +223,26 @@ describe('renderHtml', () => {
     expect(html).toContain('3 nodes · 2 critical · 1 serious');
   });
 
+  it('counts unique nodes the same way the gate does', () => {
+    const duplicate = audit({
+      violations: [
+        {
+          id: 'color-contrast',
+          title: 'Contrast',
+          impact: 'serious',
+          nodes: [
+            { selector: 'p', impact: 'serious' },
+            { selector: 'p', impact: 'serious' },
+          ],
+        },
+      ],
+    });
+    const html = renderHtml(report({ results: [entry({ audit: duplicate })] }));
+
+    expect(html).toContain('1 node · 1 serious');
+    expect(html).not.toContain('2 nodes');
+  });
+
   it('adds a cross-URL summary with anchors for multiple URLs', () => {
     const second = entry({
       url: 'https://second.example/',

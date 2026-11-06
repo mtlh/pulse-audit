@@ -107,7 +107,7 @@ export const configSchema = z
     preset: z.enum(['mobile', 'desktop']).default('mobile'),
     runs: z.number().int().min(1).max(10).default(3),
     strict: z.boolean().default(false),
-    retries: z.number().int().nonnegative().default(1),
+    retries: z.number().int().nonnegative().max(10).default(1),
     timeoutMs: z.number().int().positive().default(120_000),
     urls: z.array(z.union([auditUrlSchema, pageTargetSchema])).min(1),
     budgets: budgetsSchema.default({}),

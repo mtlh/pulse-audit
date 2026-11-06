@@ -95,9 +95,7 @@ export async function upsertSummary(path: string, markdown: string): Promise<voi
   let before = start === -1 ? existing : existing.slice(0, start);
   let after = end === -1 ? '' : existing.slice(end + SUMMARY_END.length);
 
-  if (start === -1) {
-    after = '';
-  } else {
+  if (start !== -1) {
     // The old block owned its trailing newline; drop one so we do not accumulate
     // blank lines between the new block and the surrounding content.
     after = after.replace(/^\r?\n/, '');

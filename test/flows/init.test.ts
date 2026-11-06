@@ -98,6 +98,19 @@ describe('user flow: initialise a project', () => {
     expect(result.stderr).toContain('must use http:// or https://');
   });
 
+  it('rejects a non-http --from URL before launching Chrome', async () => {
+    const dir = await workspace();
+
+    const result = await runCli(
+      ['init', 'https://example.com/', '--from', 'ftp://example.com/', '--out', 'config.json'],
+      { cwd: dir },
+    );
+
+    expect(result.code).toBe(2);
+    expect(result.stderr).toContain('must use http:// or https://');
+    await expect(stat(path.join(dir, 'config.json'))).rejects.toThrow();
+  });
+
   it('reports a bad budget with the exact path instead of crashing', async () => {
     const dir = await workspace();
     await writeFile(
