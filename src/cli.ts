@@ -22,7 +22,7 @@ import {
   writeConfig,
 } from './config.js';
 import { runDoctor, type DoctorCheck } from './doctor.js';
-import { formatValue } from './format.js';
+import { formatValue, type ValueFormat } from './format.js';
 import { buildReport, type ReportInput } from './report.js';
 import { writeHtmlReport } from './reporters/html.js';
 import { writeJsonReport } from './reporters/json.js';
@@ -126,6 +126,9 @@ program
       throw new Error(`${options.out} already exists. Use --force to overwrite it.`);
     }
 
+    for (const url of list) assertHttpUrl(url);
+    if (options.from) assertHttpUrl(options.from);
+
     let config = configSchema.parse(defaultConfig(list)) as PulseConfig;
 
     if (options.from) {
@@ -136,68 +139,51 @@ program
         timeoutMs: config.timeoutMs,
       });
       config = { ...config, budgets: budgetsFromResult(measured) };
+
       const budgets = config.budgets;
       const metrics = measured.metrics;
+      const rows: Array<{
+        label: string;
+        value: number;
+        max: number | undefined;
+        format: ValueFormat;
+      }> = [
+        { label: 'LCP', value: metrics.lcp, max: budgets.lcp?.max, format: 'ms' },
+        { label: 'CLS', value: metrics.cls, max: budgets.cls?.max, format: 'score' },
+        { label: 'TBT', value: metrics.tbt, max: budgets.tbt?.max, format: 'ms' },
+        { label: 'FCP', value: metrics.fcp, max: budgets.fcp?.max, format: 'ms' },
+        { label: 'TTFB', value: metrics.ttfb, max: budgets.ttfb?.max, format: 'ms' },
+        { label: 'JavaScript', value: metrics.js, max: budgets.js?.max, format: 'bytes' },
+        { label: 'CSS', value: metrics.css, max: budgets.css?.max, format: 'bytes' },
+        { label: 'Fonts', value: metrics.fonts, max: budgets.fonts?.max, format: 'bytes' },
+        { label: 'Images', value: metrics.images, max: budgets.images?.max, format: 'bytes' },
+        { label: 'Total', value: metrics.total, max: budgets.total?.max, format: 'bytes' },
+        { label: 'Requests', value: metrics.requests, max: budgets.requests?.max, format: 'count' },
+        {
+          label: 'Third-party bytes',
+          value: metrics.thirdPartyBytes,
+          max: budgets.thirdPartyBytes?.max,
+          format: 'bytes',
+        },
+        {
+          label: 'Third-party requests',
+          value: metrics.thirdPartyRequests,
+          max: budgets.thirdPartyRequests?.max,
+          format: 'count',
+        },
+        { label: 'A11y nodes', value: metrics.violations, max: budgets.a11y?.maxViolations, format: 'count' },
+      ];
 
       console.error(
         pc.dim(`measured ${options.from} (${config.runs} run${config.runs === 1 ? '' : 's'} + warm-up)`),
       );
       console.log('');
       console.log(pc.dim(`  ${pad('metric', 22)}${pad('measured', 12)}budget`));
-      console.log(metricRow('LCP', formatValue(metrics.lcp, 'ms'), formatValue(budgets.lcp?.max ?? 0, 'ms')));
-      console.log(
-        metricRow('CLS', formatValue(metrics.cls, 'score'), formatValue(budgets.cls?.max ?? 0, 'score')),
-      );
-      console.log(metricRow('TBT', formatValue(metrics.tbt, 'ms'), formatValue(budgets.tbt?.max ?? 0, 'ms')));
-      console.log(metricRow('FCP', formatValue(metrics.fcp, 'ms'), formatValue(budgets.fcp?.max ?? 0, 'ms')));
-      console.log(
-        metricRow('TTFB', formatValue(metrics.ttfb, 'ms'), formatValue(budgets.ttfb?.max ?? 0, 'ms')),
-      );
-      console.log(
-        metricRow('JavaScript', formatValue(metrics.js, 'bytes'), formatValue(budgets.js?.max ?? 0, 'bytes')),
-      );
-      console.log(
-        metricRow('CSS', formatValue(metrics.css, 'bytes'), formatValue(budgets.css?.max ?? 0, 'bytes')),
-      );
-      console.log(
-        metricRow(
-          'Fonts',
-          formatValue(metrics.fonts, 'bytes'),
-          formatValue(budgets.fonts?.max ?? 0, 'bytes'),
-        ),
-      );
-      console.log(
-        metricRow(
-          'Images',
-          formatValue(metrics.images, 'bytes'),
-          formatValue(budgets.images?.max ?? 0, 'bytes'),
-        ),
-      );
-      console.log(
-        metricRow(
-          'Total',
-          formatValue(metrics.total, 'bytes'),
-          formatValue(budgets.total?.max ?? 0, 'bytes'),
-        ),
-      );
-      console.log(metricRow('Requests', String(metrics.requests), String(budgets.requests?.max ?? 0)));
-      console.log(
-        metricRow(
-          'Third-party bytes',
-          formatValue(metrics.thirdPartyBytes, 'bytes'),
-          formatValue(budgets.thirdPartyBytes?.max ?? 0, 'bytes'),
-        ),
-      );
-      console.log(
-        metricRow(
-          'Third-party requests',
-          String(metrics.thirdPartyRequests),
-          String(budgets.thirdPartyRequests?.max ?? 0),
-        ),
-      );
-      console.log(
-        metricRow('A11y nodes', String(metrics.violations), String(budgets.a11y?.maxViolations ?? 0)),
-      );
+      for (const row of rows) {
+        console.log(
+          metricRow(row.label, formatValue(row.value, row.format), formatValue(row.max ?? 0, row.format)),
+        );
+      }
       console.log('');
     }
 

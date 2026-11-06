@@ -118,6 +118,27 @@ describe('compareResult', () => {
     expect(lcp.reason).toContain('no comparable baseline');
   });
 
+  it('fails an over-max metric that got worse when the rule has no regression tolerance', () => {
+    // A max-only rule cannot say "this increase is tolerable". Without a
+    // regression percentage the ratchet must require an actual improvement.
+    const maxOnly = config({ budgets: { ...config().budgets, lcp: { max: 2500 } } });
+    const baseline = withMetrics({ lcp: 3900 });
+    const current = withMetrics({ lcp: 4000 });
+    const lcp = check(compareResult(current, baseline, maxOnly), 'lcp');
+
+    expect(lcp.status).toBe('fail');
+    expect(lcp.reason).toContain('over max');
+  });
+
+  it('ratchets an over-max metric that stayed flat against the baseline', () => {
+    const maxOnly = config({ budgets: { ...config().budgets, lcp: { max: 2500 } } });
+    const unchanged = withMetrics({ lcp: 4000 });
+    const lcp = check(compareResult(unchanged, unchanged, maxOnly), 'lcp');
+
+    expect(lcp.status).toBe('pass');
+    expect(lcp.reason).toContain('not a regression');
+  });
+
   it('fails an over-max metric that improved when strict is enabled', () => {
     const baseline = withMetrics({ lcp: 4000 });
     const current = withMetrics({ lcp: 3900 });

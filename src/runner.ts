@@ -7,8 +7,6 @@ import type { A11yImpact, A11yNode, A11yViolation, AuditMetrics, AuditResult, Pr
 import { median } from './util/median.js';
 import { AUDIT_METRIC_KEYS } from './util/variance.js';
 
-export { violationKey } from './compare.js';
-
 const MOBILE_SCREEN = { width: 412, height: 823, deviceScaleFactor: 1.75, mobile: true };
 const DESKTOP_SCREEN = { width: 1350, height: 940, deviceScaleFactor: 1, mobile: false };
 
@@ -182,6 +180,10 @@ async function measureOnce(
 }
 
 export async function runAudit(url: string, options: AuditOptions): Promise<AuditResult> {
+  if (!Number.isInteger(options.runs) || options.runs < 1) {
+    throw new Error(`runs must be a positive integer, received ${options.runs}`);
+  }
+
   const binary = findChromeBinary();
   if (!binary.path) throw new Error(binary.detail);
 

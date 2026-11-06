@@ -42,7 +42,7 @@ What changed:
 Breaking API changes: `runAudit(url, { preset, runs, retries, timeoutMs })` and
 `buildReport(inputs)`. The README has the migration summary.
 
-Verified with `npm run typecheck`, `npm test` (126 passed, 7 Chrome/package flows skipped),
+Verified with `npm run typecheck`, `npm test` (132 passed, 7 Chrome/package flows skipped),
 `npm run build` and `npm run test:e2e` (15 flow tests, including the packed install). The report
 JSON schema is now version 2; the HTML footer shows the package version separately. WSL support
 adds Linux Chrome detection (including snap/Flatpak fallbacks) and WSL-specific doctor guidance.
@@ -99,7 +99,7 @@ a11y gating, and a report that diagnoses instead of scoring.
 | Markdown summary                    | Done                                       | for `$GITHUB_STEP_SUMMARY`; replaces its marker block                             |
 | GitHub Action                       | **Dropped**                                | owner chose npx/CLI as the delivery path                                          |
 | WSL                                 | **Verified (unit)**                        | Linux Chrome detection incl. snap/Flatpak; `doctor` guidance                      |
-| Unit tests                          | Done                                       | 126 tests in the current tree                                                     |
+| Unit tests                          | Done                                       | 132 tests in the current tree                                                     |
 | Integration tests / fixture site    | **Verified**                               | deterministic fixture + 15 CLI flows; `PULSE_E2E=1`                               |
 | Docs                                | Updated                                    | budgets, roadmap, WSL, quick start, test commands                                 |
 | npm publish                         | **Live**                                   | `@mtlh/pulse-audit@0.1.0`; unreleased changes stay on `main` until a version bump |
@@ -107,7 +107,7 @@ a11y gating, and a report that diagnoses instead of scoring.
 | PR comment                          | Not done                                   | step summary only                                                                 |
 
 `npm install` has been run and `package-lock.json` is present. `npm run typecheck`,
-`npm test` (126 tests; 7 Chrome/package flows skipped) and `npm run build` all pass.
+`npm test` (132 tests; 7 Chrome/package flows skipped) and `npm run build` all pass.
 `npm run test:e2e` runs the 15 flow tests, including fixture audits and a packed install.
 `npm run battle-test` exercises the live portfolio through the CLI sequence.
 

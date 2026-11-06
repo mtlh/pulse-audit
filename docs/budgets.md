@@ -87,9 +87,11 @@ regression budget lets a page drift upward forever. Pulse combines them:
 
 The "over max but improved" case is the ratchet: the tool is a regression gate, not a
 compliance auditor. It applies to `error` rules; a `warn` rule that is over `max` but improving
-still reports a warning. Set `"strict": true` (top level, default `false`) when absolute
-compliance should be enforced now. In strict mode, absolute breaches on `error` rules fail even
-when the page improved; warnings stay warnings.
+still reports a warning. When a rule has only `max`, there is no tolerance to excuse an
+increase, so the metric must stay flat or improve for the ratchet to apply. Set
+`"strict": true` (top level, default `false`) when absolute compliance should be enforced now.
+In strict mode, absolute breaches on `error` rules fail even when the page improved; warnings
+stay warnings.
 
 ## Severity
 
