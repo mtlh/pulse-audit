@@ -1,4 +1,4 @@
-# Handoff — Pulse
+﻿# Handoff â€” Pulse
 
 You are picking up `pulse-audit`, a CLI package that gates performance, accessibility and page
 weight in CI. This document is the brief: what exists, what is decided, what is left, and how
@@ -12,7 +12,7 @@ to verify it.
 
 ---
 
-## Unreleased status — "trustworthy gate" (still v0.1.0)
+## Unreleased status â€” "trustworthy gate" (still v0.1.0)
 
 The v0.2 scope from `docs/roadmap.md` is implemented on `main` (merged in PR #1) on top of
 v0.1.0. The package version intentionally stays at 0.1.0 until the next release.
@@ -42,8 +42,8 @@ What changed:
 Breaking API changes: `runAudit(url, { preset, runs, retries, timeoutMs })` and
 `buildReport(inputs)`. The README has the migration summary.
 
-Verified with `npm run typecheck`, `npm test` (132 passed, 7 Chrome/package flows skipped),
-`npm run build` and `npm run test:e2e` (15 flow tests, including the packed install). The report
+Verified with `npm run typecheck`, `npm test` (133 passed, 7 Chrome/package flows skipped),
+`npm run build` and `npm run test:e2e` (16 flow tests, including the packed install). The report
 JSON schema is now version 2; the HTML footer shows the package version separately. WSL support
 adds Linux Chrome detection (including snap/Flatpak fallbacks) and WSL-specific doctor guidance.
 
@@ -70,7 +70,8 @@ a11y gating, and a report that diagnoses instead of scoring.
    requests and axe results. Pulse is the comparison + reporting layer. A custom CDP collector
    exists in the portfolio (`perf/cdp-trace.mjs`) but is not the engine here.
 2. **Baseline deltas, not absolute scores.** Lighthouse scores are noisy on shared CI runners.
-3. **Median of N, warm-up discarded.** Default N = 3. Allow 5.
+3. **Median of N, warm-up not measured.** Default N = 3. Allow 5. Warm-up defaults to a
+   plain Chrome navigation; "full" keeps a discarded Lighthouse run and "none" starts cold.
 4. **The report is a single HTML file.** No server, no account, no external assets. It must
    load offline and stay under ~100 KB.
 5. **Ratchet semantics.** A page that is already over budget but improving does not fail.
@@ -84,31 +85,31 @@ a11y gating, and a report that diagnoses instead of scoring.
 
 ## 3. Current state
 
-| Area                                | State                                      | Notes                                                                             |
-| ----------------------------------- | ------------------------------------------ | --------------------------------------------------------------------------------- |
-| `package.json` / TS / tsup / vitest | Done                                       | Node 20+, ESM                                                                     |
-| Config schema + defaults            | **Verified**                               | zod, per-URL overrides, readable units, strict mode                               |
-| `init` command                      | **Verified**                               | defaults or measured budgets via `--from`                                         |
-| Lighthouse runner                   | **Verified (samples + warm-up + retries)** | Lighthouse 12.8.2; median of N, per-run samples, retry and per-URL isolation      |
-| LHR extraction                      | **Verified**                               | LCP element, expanded weight metrics and axe nodes checked                        |
-| Compare / budget logic              | **Verified (live + flows)**                | strict mode, impact buckets and `ignoreRules` unit tested                         |
-| Baseline read/write + comparability | **Verified (v2 + migration)**              | keyed `preset::url`; v1 migrates on read; major-version comparability             |
-| Terminal reporter                   | Done                                       | ANSI colour, run spread, ignored-rule note                                        |
-| JSON reporter                       | Done                                       | report schema v2                                                                  |
-| HTML reporter                       | **Verified**                               | self-contained, no JS; variance, third-party and cross-URL sections               |
-| Markdown summary                    | Done                                       | for `$GITHUB_STEP_SUMMARY`; replaces its marker block                             |
-| GitHub Action                       | **Dropped**                                | owner chose npx/CLI as the delivery path                                          |
-| WSL                                 | **Verified (unit)**                        | Linux Chrome detection incl. snap/Flatpak; `doctor` guidance                      |
-| Unit tests                          | Done                                       | 132 tests in the current tree                                                     |
-| Integration tests / fixture site    | **Verified**                               | deterministic fixture + 15 CLI flows; `PULSE_E2E=1`                               |
-| Docs                                | Updated                                    | budgets, roadmap, WSL, quick start, test commands                                 |
-| npm publish                         | **Live**                                   | `@mtlh/pulse-audit@0.1.0`; unreleased changes stay on `main` until a version bump |
-| Release workflow                    | **Added**                                  | main push → publish new version → tag/release                                     |
-| PR comment                          | Not done                                   | step summary only                                                                 |
+| Area                                | State                                      | Notes                                                                                                    |
+| ----------------------------------- | ------------------------------------------ | -------------------------------------------------------------------------------------------------------- |
+| `package.json` / TS / tsup / vitest | Done                                       | Node 20+, ESM                                                                                            |
+| Config schema + defaults            | **Verified**                               | zod, per-URL overrides, readable units, strict mode                                                      |
+| `init` command                      | **Verified**                               | defaults or measured budgets via `--from`                                                                |
+| Lighthouse runner                   | **Verified (samples + warm-up + retries)** | Lighthouse 12.8.2; median of N, per-run samples, retry and per-URL isolation; navigate/full/none warm-up |
+| LHR extraction                      | **Verified**                               | LCP element, expanded weight metrics and axe nodes checked                                               |
+| Compare / budget logic              | **Verified (live + flows)**                | strict mode, impact buckets and `ignoreRules` unit tested                                                |
+| Baseline read/write + comparability | **Verified (v2 + migration)**              | keyed `preset::url`; v1 migrates on read; major-version comparability                                    |
+| Terminal reporter                   | Done                                       | ANSI colour, run spread, ignored-rule note                                                               |
+| JSON reporter                       | Done                                       | report schema v2                                                                                         |
+| HTML reporter                       | **Verified**                               | self-contained, no JS; variance, third-party and cross-URL sections                                      |
+| Markdown summary                    | Done                                       | for `$GITHUB_STEP_SUMMARY`; replaces its marker block                                                    |
+| GitHub Action                       | **Dropped**                                | owner chose npx/CLI as the delivery path                                                                 |
+| WSL                                 | **Verified (unit)**                        | Linux Chrome detection incl. snap/Flatpak; `doctor` guidance                                             |
+| Unit tests                          | Done                                       | 133 tests in the current tree                                                                            |
+| Integration tests / fixture site    | **Verified**                               | deterministic fixture + 16 CLI flows; `PULSE_E2E=1`                                                      |
+| Docs                                | Updated                                    | budgets, roadmap, WSL, quick start, test commands                                                        |
+| npm publish                         | **Live**                                   | `@mtlh/pulse-audit@0.1.0`; unreleased changes stay on `main` until a version bump                        |
+| Release workflow                    | **Added**                                  | main push â†’ publish new version â†’ tag/release                                                        |
+| PR comment                          | Not done                                   | step summary only                                                                                        |
 
 `npm install` has been run and `package-lock.json` is present. `npm run typecheck`,
-`npm test` (132 tests; 7 Chrome/package flows skipped) and `npm run build` all pass.
-`npm run test:e2e` runs the 15 flow tests, including fixture audits and a packed install.
+`npm test` (133 tests; 7 Chrome/package flows skipped) and `npm run build` all pass.
+`npm run test:e2e` runs the 16 flow tests, including fixture audits and a packed install.
 `npm run battle-test` exercises the live portfolio through the CLI sequence.
 
 ---
@@ -117,57 +118,57 @@ a11y gating, and a report that diagnoses instead of scoring.
 
 ```
 pulse-audit/
-├── .pulse.json                    dogfood config for mtlh.vercel.app
-├── docs/
-│   ├── budgets.md                 pass/fail semantics
-│   └── roadmap.md                 v0.2/v0.3/v1.0 scope
-├── src/
-│   ├── cli.ts                     init (incl. --from) + audit/baseline/doctor
-│   ├── config.ts                  schema, defaults, measured budgets, per-URL merge
-│   ├── chrome.ts                  Chrome/WSL detection and fallbacks
-│   ├── doctor.ts                  environment and project checks
-│   ├── runner.ts                  chrome-launcher + lighthouse, median pick
-│   ├── extract.ts                 LHR -> AuditResult
-│   ├── compare.ts                 pure budget evaluation
-│   ├── report.ts                  ReportEntry assembly
-│   ├── baseline.ts                read/write/comparable/merge
-│   ├── format.ts                  ms/bytes/score/count formatting + HTML escape
-│   ├── version.ts                 version read from package.json
-│   ├── reporters/
-│   │   ├── terminal.ts
-│   │   ├── json.ts
-│   │   ├── html.ts                renderHtml + writeHtmlReport
-│   │   ├── summary.ts             Markdown for job summary
-│   │   └── spread.ts              shared min/median/max spread rows
-│   ├── util/                      units, median, variance, impact order
-│   └── index.ts                   public API
-├── scripts/
-│   ├── run-e2e.mjs                builds, then runs test/flows
-│   └── battle-test.mjs            live portfolio sequence
-└── test/
-    ├── baseline.test.ts
-    ├── chrome.test.ts
-    ├── compare.test.ts
-    ├── config.test.ts
-    ├── doctor.test.ts
-    ├── extract.test.ts
-    ├── format.test.ts
-    ├── html.test.ts
-    ├── median.test.ts
-    ├── median-run.test.ts
-    ├── report.test.ts
-    ├── summary.test.ts
-    ├── variance.test.ts
-    └── flows/
-        ├── fixture.ts             deterministic local site
-        ├── helpers.ts             CLI runner, temp dirs, budgets
-        ├── init.test.ts           no-Chrome init/error flows
-        ├── audit.e2e.test.ts      pass/fail outputs and --no-fail
-        ├── baseline.e2e.test.ts   baseline, deltas and new axe debt
-        ├── init-from.e2e.test.ts  derive budgets from a measured page
-        ├── json.e2e.test.ts       --json and --fail-on
-        ├── desktop.e2e.test.ts    desktop preset
-        └── package.e2e.test.ts    npm pack + install + audit
+â”œâ”€â”€ .pulse.json                    dogfood config for mtlh.vercel.app
+â”œâ”€â”€ docs/
+â”‚   â”œâ”€â”€ budgets.md                 pass/fail semantics
+â”‚   â””â”€â”€ roadmap.md                 v0.2/v0.3/v1.0 scope
+â”œâ”€â”€ src/
+â”‚   â”œâ”€â”€ cli.ts                     init (incl. --from) + audit/baseline/doctor
+â”‚   â”œâ”€â”€ config.ts                  schema, defaults, measured budgets, per-URL merge
+â”‚   â”œâ”€â”€ chrome.ts                  Chrome/WSL detection and fallbacks
+â”‚   â”œâ”€â”€ doctor.ts                  environment and project checks
+â”‚   â”œâ”€â”€ runner.ts                  chrome-launcher + lighthouse, median pick
+â”‚   â”œâ”€â”€ extract.ts                 LHR -> AuditResult
+â”‚   â”œâ”€â”€ compare.ts                 pure budget evaluation
+â”‚   â”œâ”€â”€ report.ts                  ReportEntry assembly
+â”‚   â”œâ”€â”€ baseline.ts                read/write/comparable/merge
+â”‚   â”œâ”€â”€ format.ts                  ms/bytes/score/count formatting + HTML escape
+â”‚   â”œâ”€â”€ version.ts                 version read from package.json
+â”‚   â”œâ”€â”€ reporters/
+â”‚   â”‚   â”œâ”€â”€ terminal.ts
+â”‚   â”‚   â”œâ”€â”€ json.ts
+â”‚   â”‚   â”œâ”€â”€ html.ts                renderHtml + writeHtmlReport
+â”‚   â”‚   â”œâ”€â”€ summary.ts             Markdown for job summary
+â”‚   â”‚   â””â”€â”€ spread.ts              shared min/median/max spread rows
+â”‚   â”œâ”€â”€ util/                      units, median, variance, impact order
+â”‚   â””â”€â”€ index.ts                   public API
+â”œâ”€â”€ scripts/
+â”‚   â”œâ”€â”€ run-e2e.mjs                builds, then runs test/flows
+â”‚   â””â”€â”€ battle-test.mjs            live portfolio sequence
+â””â”€â”€ test/
+    â”œâ”€â”€ baseline.test.ts
+    â”œâ”€â”€ chrome.test.ts
+    â”œâ”€â”€ compare.test.ts
+    â”œâ”€â”€ config.test.ts
+    â”œâ”€â”€ doctor.test.ts
+    â”œâ”€â”€ extract.test.ts
+    â”œâ”€â”€ format.test.ts
+    â”œâ”€â”€ html.test.ts
+    â”œâ”€â”€ median.test.ts
+    â”œâ”€â”€ median-run.test.ts
+    â”œâ”€â”€ report.test.ts
+    â”œâ”€â”€ summary.test.ts
+    â”œâ”€â”€ variance.test.ts
+    â””â”€â”€ flows/
+        â”œâ”€â”€ fixture.ts             deterministic local site
+        â”œâ”€â”€ helpers.ts             CLI runner, temp dirs, budgets
+        â”œâ”€â”€ init.test.ts           no-Chrome init/error flows
+        â”œâ”€â”€ audit.e2e.test.ts      pass/fail outputs and --no-fail
+        â”œâ”€â”€ baseline.e2e.test.ts   baseline, deltas and new axe debt
+        â”œâ”€â”€ init-from.e2e.test.ts  derive budgets from a measured page
+        â”œâ”€â”€ json.e2e.test.ts       --json and --fail-on
+        â”œâ”€â”€ desktop.e2e.test.ts    desktop preset
+        â””â”€â”€ package.e2e.test.ts    npm pack + install + audit
 ```
 
 ---
@@ -254,7 +255,7 @@ If Lighthouse fails, check in this order:
 
 Work top to bottom. Each step should leave `npm run typecheck && npm test` green.
 
-### Step 1 — Make the Lighthouse path real
+### Step 1 â€” Make the Lighthouse path real
 
 - ~~Run one live audit.~~
 - Run a second audit and confirm the median path (use `--runs 3`).
@@ -265,7 +266,7 @@ Work top to bottom. Each step should leave `npm run typecheck && npm test` green
   throwing, and LCP is within ~20% of the Lighthouse JSON value. _(Confirmed 2026-11-02:
   1.53 s and 1.53 s; runs=3 and the warm-up path also verified)_
 
-### Step 2 — Verify the HTML report
+### Step 2 â€” Verify the HTML report
 
 - Open `.pulse/report.html` in Chrome at 390 px and 1280 px.
 - Check: no horizontal scroll, status pills correct, requests bars proportional, long URLs
@@ -275,19 +276,19 @@ Work top to bottom. Each step should leave `npm run typecheck && npm test` green
   selector previously forced 602 px of scroll; fixed with `minmax(0, 1fr)` and wrapping.
   Escaping is covered by `test/html.test.ts`.)_
 
-### Step 3 — Baseline flow
+### Step 3 â€” Baseline flow
 
 - `audit --update-baseline`, then edit a budget to force a failure, then `audit`.
 - Confirm exit code 1 and a readable delta.
 - Confirm a baseline with a different `runs` value is ignored with a warning.
 - **Acceptance:** pass/fail/exit-code matrix in `docs/budgets.md` is true. _(Verified
   2026-11-02 with a temporary config: first `--update-baseline` exits 0, the next run reports
-  deltas and exits 0, a lowered baseline exits 1 with `↳ regressed +38.7% vs baseline`, an
-  over-max-but-improving metric exits 0 with `↳ over max … but not a regression`, and a
+  deltas and exits 0, a lowered baseline exits 1 with `â†³ regressed +38.7% vs baseline`, an
+  over-max-but-improving metric exits 0 with `â†³ over max â€¦ but not a regression`, and a
   different `--runs` count warns and ignores the baseline. Failures, warnings and ratchet
   passes now print their reason in the terminal, HTML and Markdown reports.)_
 
-### Step 4 — Fixture site + integration tests
+### Step 4 â€” Fixture site + integration tests
 
 Create `test/fixtures/site/` with:
 
@@ -304,37 +305,37 @@ Keep the fixture deterministic: no external requests, fixed dimensions.
   `test/flows/fixture.ts` and generates the heavy assets in memory. Measured: LCP 2.40 s on
   `img.hero`, CLS 0.075, JS 220 KB, images 161 KB, 4 requests, 3 axe nodes. `test/flows/`
   covers init, pass/fail/`--no-fail`, baseline seeding, deltas, run-count mismatch, new axe
-  debt, `init --from`, desktop and a packed install. 15 flow tests pass with
+  debt, `init --from`, desktop and a packed install. 16 flow tests pass with
   `npm run test:e2e`; 5 no-Chrome flow tests run in `npm test`.)_
 
-### Step 5 — Flakiness
+### Step 5 â€” Flakiness
 
 - Run the same URL 10 times on CI and record variance per metric.
 - Add a note to the docs for metrics that exceed 10% variance.
 - Consider `runs: 5` guidance for GitHub-hosted runners.
 - **Acceptance:** zero false failures across 20 consecutive runs of an unchanged page.
-- **Local observations (2026-11-02):** live portfolio LCP stayed in 1.51–1.66 s across runs
-  (about 5% spread); TBT ranged 0–133 ms but is already `warn`; requests, JS, images and a11y
+- **Local observations (2026-11-02):** live portfolio LCP stayed in 1.51â€“1.66 s across runs
+  (about 5% spread); TBT ranged 0â€“133 ms but is already `warn`; requests, JS, images and a11y
   node count were stable. The fixture produced the expected pass/fail outcome throughout the
   15 flow tests (~20 Lighthouse runs). No unexpected pass/fail flips were observed. A real
   GitHub-hosted runner sample is still needed for the 20-run acceptance.
 
-### Step 6 — GitHub Action (dropped)
+### Step 6 â€” GitHub Action (dropped)
 
 The owner chose `npx @mtlh/pulse-audit` as the only delivery path. Do not ship a composite action or
 Marketplace release. The old action file and its contract test were removed. CI for this repo
 still runs `npm run test:e2e`; consumers call the CLI from their own runner.
 
-### Step 7 — Docs and packaging
+### Step 7 â€” Docs and packaging
 
-- README GIF: failing audit → failing PR → report.
+- README GIF: failing audit â†’ failing PR â†’ report.
 - `npm pack --dry-run`; confirm only `dist`, `README.md` and `LICENSE` ship.
 - Add `repository`, `homepage`, `bugs`, `keywords` to `package.json`.
 - `npm publish --access public` (done; `0.1.0` live after npm staged-release approval).
 - Tag `v0.1.0`; Marketplace release for the action.
 - **Acceptance:** `npx @mtlh/pulse-audit@0.1.0 --version` works on a clean machine.
 
-### Step 8 — Dogfood
+### Step 8 â€” Dogfood
 
 - Add a PortfolioV2 CI step that runs `npx @mtlh/pulse-audit audit`.
 - Baseline `main`, then open a throwaway PR that adds a large image.
@@ -406,6 +407,12 @@ from 'chrome-launcher'`.
   signals with no external requests.
 - Lighthouse full-page screenshots are disabled (`disableFullPageScreenshot`) because Pulse never
   reads them. That saves about a second per run and leaves metrics and axe results unchanged.
+- Warm-up defaults to `navigate`: one plain Chrome page load via `puppeteer-core`, which warms
+  DNS, TLS, the server and the JS compiler without a Lighthouse trace or axe pass. Use a full
+  warm-up to restore the discarded Lighthouse run, or none to measure a cold browser.
+- Lighthouse and `puppeteer-core` are imported lazily inside `runAudit`, and the import runs in
+  parallel with the Chrome launch. Non-audit commands (`doctor`, `baseline`, `--version`) and
+  library imports therefore start in about 100 ms instead of 1.7 s.
 - `npm run battle-test` runs `init --from`, baseline update/compare and a forced regression
   against `https://mtlh.vercel.app/`. It writes `.pulse/battle-test.md`.
 - Flow tests invoke the built `dist/cli.js` in a temp working directory, so they exercise the
@@ -461,7 +468,7 @@ self-host the GitHub chart, then re-baseline and tighten `requests` from 90 to ~
 
 ---
 
-## 10. Definition of done for the scaffold → v0.1
+## 10. Definition of done for the scaffold â†’ v0.1
 
 - [x] `npm install && npm run typecheck && npm test && npm run build` all pass.
 - [x] A live audit of `https://mtlh.vercel.app/` produces a report (runs=1).
@@ -480,7 +487,7 @@ self-host the GitHub chart, then re-baseline and tighten `requests` from 90 to ~
 
 > You are continuing `pulse-audit` at its repository checkout. Read
 > `HANDOFF.md` first. Steps 1-4 are complete and v0.1.0 is live on npm. The delivery path is
-> `npx @mtlh/pulse-audit`; there is no composite action. `npm run test:e2e` runs the 15 flow tests
+> `npx @mtlh/pulse-audit`; there is no composite action. `npm run test:e2e` runs the 16 flow tests
 > (including a packed install) and `npm run battle-test` exercises the live portfolio. Your next
 > jobs are Step 5 (flakiness/variance) and Step 7 (README GIF, tag maintenance). Use
 > `pulse init --from <url>` as the primary adoption path: it measures the page and writes

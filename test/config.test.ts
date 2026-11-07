@@ -51,6 +51,7 @@ describe('config', () => {
     expect(parsed.strict).toBe(false);
     expect(parsed.retries).toBe(1);
     expect(parsed.timeoutMs).toBe(120_000);
+    expect(parsed.warmup).toBe('navigate');
     expect(parsed.report.outDir).toBe('.pulse');
     expect(parsed.budgets.lcp?.max).toBe(2500);
     expect(parsed.budgets.fcp?.max).toBe(1800);
@@ -65,12 +66,20 @@ describe('config', () => {
     expect(parsed.strict).toBe(false);
     expect(parsed.retries).toBe(1);
     expect(parsed.timeoutMs).toBe(120_000);
+    expect(parsed.warmup).toBe('navigate');
     expect(parsed.report.outDir).toBe('.pulse');
   });
 
   it('rejects an invalid preset', () => {
     const parsed = configSchema.safeParse({ urls: ['https://example.com/'], preset: 'tablet' });
     expect(parsed.success).toBe(false);
+  });
+
+  it('accepts every warm-up mode and rejects an unknown one', () => {
+    for (const warmup of ['full', 'navigate', 'none']) {
+      expect(configSchema.safeParse({ urls: ['https://example.com/'], warmup }).success).toBe(true);
+    }
+    expect(configSchema.safeParse({ urls: ['https://example.com/'], warmup: 'cold' }).success).toBe(false);
   });
 
   it('rejects a non-URL', () => {
@@ -194,12 +203,14 @@ describe('resolveTargets', () => {
       strict: true,
       retries: 4,
       timeoutMs: 30_000,
+      warmup: 'full',
     });
 
     const [resolved] = resolveTargets(config);
     expect(resolved?.strict).toBe(true);
     expect(resolved?.retries).toBe(4);
     expect(resolved?.timeoutMs).toBe(30_000);
+    expect(resolved?.warmup).toBe('full');
   });
 });
 

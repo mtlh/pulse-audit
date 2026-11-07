@@ -29,7 +29,7 @@ import { writeJsonReport } from './reporters/json.js';
 import { renderMarkdown, upsertSummary } from './reporters/summary.js';
 import { printReport } from './reporters/terminal.js';
 import { runAudit } from './runner.js';
-import type { Preset, PulseConfig } from './types.js';
+import type { Preset, PulseConfig, WarmupMode } from './types.js';
 import { VERSION } from './version.js';
 
 type FailOn = 'error' | 'warn' | 'none';
@@ -68,6 +68,14 @@ function parsePreset(value: string | undefined): Preset | undefined {
   if (value === undefined) return undefined;
   if (value !== 'mobile' && value !== 'desktop') {
     throw new Error('--preset must be "mobile" or "desktop"');
+  }
+  return value;
+}
+
+function parseWarmup(value: string | undefined): WarmupMode | undefined {
+  if (value === undefined) return undefined;
+  if (value !== 'full' && value !== 'navigate' && value !== 'none') {
+    throw new Error('--warmup must be "full", "navigate" or "none"');
   }
   return value;
 }
@@ -137,6 +145,7 @@ program
         runs: config.runs,
         retries: config.retries,
         timeoutMs: config.timeoutMs,
+        warmup: config.warmup,
       });
       config = { ...config, budgets: budgetsFromResult(measured) };
 
@@ -175,7 +184,9 @@ program
       ];
 
       console.error(
-        pc.dim(`measured ${options.from} (${config.runs} run${config.runs === 1 ? '' : 's'} + warm-up)`),
+        pc.dim(
+          `measured ${options.from} (${config.runs} run${config.runs === 1 ? '' : 's'}, ${config.warmup ?? 'navigate'} warm-up)`,
+        ),
       );
       console.log('');
       console.log(pc.dim(`  ${pad('metric', 22)}${pad('measured', 12)}budget`));
@@ -211,6 +222,7 @@ program
   .option('--summary <path>', 'write a Markdown summary to this file (the pulse block is replaced)')
   .option('--retries <n>', 'extra attempts after a failed Lighthouse run')
   .option('--timeout <ms>', 'Lighthouse maxWaitForLoad in milliseconds')
+  .option('--warmup <mode>', 'warm-up before measured runs: navigate, full or none')
   .option('--github-output', 'write report-path and counts to $GITHUB_OUTPUT')
   .option('--update-baseline', 'write the audit result to the baseline file')
   .option('--json', 'print the report JSON to stdout; progress and paths go to stderr')
@@ -229,6 +241,7 @@ program
         summary?: string;
         retries?: string;
         timeout?: string;
+        warmup?: string;
         githubOutput?: boolean;
         updateBaseline?: boolean;
         json?: boolean;
@@ -244,12 +257,14 @@ program
       const preset = parsePreset(options.preset);
       const retries = parseRetries(options.retries);
       const timeoutMs = parseTimeout(options.timeout);
+      const warmup = parseWarmup(options.warmup);
       const failOn = parseFailOn(options.failOn, options.fail);
 
       if (runs !== undefined) config.runs = runs;
       if (preset !== undefined) config.preset = preset;
       if (retries !== undefined) config.retries = retries;
       if (timeoutMs !== undefined) config.timeoutMs = timeoutMs;
+      if (warmup !== undefined) config.warmup = warmup;
       if (options.out !== undefined) config.report.outDir = options.out;
       if (url !== undefined) {
         // Keep the page-level overrides when the override URL is already in the
@@ -295,7 +310,7 @@ program
       for (const page of pages) {
         const pageUrl = targetUrl(page);
         progress(
-          `auditing ${pageUrl} (${page.preset}, ${page.runs} run${page.runs === 1 ? '' : 's'} + warm-up)…`,
+          `auditing ${pageUrl} (${page.preset}, ${page.runs} run${page.runs === 1 ? '' : 's'}, ${page.warmup ?? 'navigate'} warm-up)…`,
         );
 
         try {
@@ -304,6 +319,7 @@ program
             runs: page.runs,
             retries: page.retries,
             timeoutMs: page.timeoutMs,
+            warmup: page.warmup,
           });
 
           const raw = baseline.results[baselineKey(page.preset, pageUrl)];
