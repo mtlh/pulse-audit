@@ -249,4 +249,98 @@ describe('doctor', () => {
     expect(target?.detail).toContain('ignored');
     expect(result.ok).toBe(false);
   });
+
+  it('checks every page URL and reports them in config order', async () => {
+    const dir = await workspace();
+    const urls = ['https://one.example.com/', 'https://two.example.com/', 'https://three.example.com/'];
+    const configPath = await writeConfig(dir, { urls });
+    const seen: string[] = [];
+
+    const result = await runDoctor({
+      configPath,
+      checkChrome: async () => ({ ok: true, detail: 'stub chrome' }),
+      checkUrl: async (url) => {
+        seen.push(url);
+        return { ok: true, detail: '200 OK' };
+      },
+    });
+
+    expect([...seen].sort()).toEqual([...urls].sort());
+    const checked = result.checks.filter((check) => check.name.startsWith('url '));
+    expect(checked.map((check) => check.name)).toEqual(urls.map((url) => `url ${url}`));
+    expect(checked.every((check) => check.status === 'pass')).toBe(true);
+    expect(checked.every((check) => check.detail === '200 OK')).toBe(true);
+  });
+
+  it('checks every API target after the page checks, in config order', async () => {
+    const dir = await workspace();
+    const apiUrls = [
+      'https://api.example.com/one',
+      'https://api.example.com/two',
+      'https://api.example.com/three',
+    ];
+    const configPath = await writeConfig(dir, {
+      urls: [URL],
+      api: apiUrls.map((url) => ({ url, runs: 2 })),
+    });
+    const seenPages: string[] = [];
+    const seenApis: string[] = [];
+
+    const result = await runDoctor({
+      configPath,
+      checkChrome: async () => ({ ok: true, detail: 'stub chrome' }),
+      checkUrl: async (url) => {
+        seenPages.push(url);
+        return { ok: true, detail: '200 OK' };
+      },
+      checkApi: async (target) => {
+        seenApis.push(target.url);
+        return { ok: false, detail: '503 Service Unavailable' };
+      },
+    });
+
+    expect(seenPages).toEqual([URL]);
+    expect([...seenApis].sort()).toEqual([...apiUrls].sort());
+
+    const networkChecks = result.checks
+      .filter((check) => check.name.startsWith('url ') || check.name.startsWith('api '))
+      .map((check) => check.name);
+    expect(networkChecks).toEqual([`url ${URL}`, ...apiUrls.map((url) => `api GET ${url}`)]);
+    expect(result.checks.find((check) => check.name === `api GET ${apiUrls[0]}`)?.status).toBe('fail');
+  });
+
+  it('overlaps independent network checks instead of running them one by one', async () => {
+    const dir = await workspace();
+    const urls = [
+      'https://one.example.com/',
+      'https://two.example.com/',
+      'https://three.example.com/',
+      'https://four.example.com/',
+    ];
+    const configPath = await writeConfig(dir, { urls });
+    const started: string[] = [];
+    let active = 0;
+    let maxActive = 0;
+
+    const begin = Date.now();
+    await runDoctor({
+      configPath,
+      checkChrome: async () => ({ ok: true, detail: 'stub chrome' }),
+      checkUrl: async (url) => {
+        started.push(url);
+        active += 1;
+        maxActive = Math.max(maxActive, active);
+        await new Promise((resolve) => setTimeout(resolve, 100));
+        active -= 1;
+        return { ok: true, detail: '200 OK' };
+      },
+    });
+    const elapsed = Date.now() - begin;
+
+    expect(started).toHaveLength(urls.length);
+    expect([...started].sort()).toEqual([...urls].sort());
+    expect(maxActive).toBeGreaterThan(1);
+    // Four sequential 100ms checks would need at least 400ms.
+    expect(elapsed).toBeLessThan(urls.length * 100);
+  });
 });
