@@ -154,7 +154,7 @@ const apiTargetSchema = z
   .object({
     url: auditUrlSchema,
     method: z.enum(HTTP_METHODS).optional(),
-    headers: z.record(z.string()).optional(),
+    headers: z.record(z.string(), z.string()).optional(),
     body: z.string().optional(),
     auth: authSchema.optional(),
     runs: z.number().int().min(1).max(10).optional(),
@@ -198,7 +198,7 @@ export const configSchema = z
         outDir: z.string().min(1).default('.pulse'),
       })
       .strict()
-      .default({}),
+      .prefault({}),
   })
   .strict()
   .refine((config) => config.urls.length > 0 || config.api.length > 0, {
