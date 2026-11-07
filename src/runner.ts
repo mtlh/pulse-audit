@@ -1,9 +1,16 @@
 import * as chromeLauncher from 'chrome-launcher';
-import lighthouse from 'lighthouse';
 import { findChromeBinary } from './chrome.js';
 import { countViolationNodes, violationKey } from './compare.js';
 import { extractResult, worstImpact } from './extract.js';
-import type { A11yImpact, A11yNode, A11yViolation, AuditMetrics, AuditResult, Preset } from './types.js';
+import type {
+  A11yImpact,
+  A11yNode,
+  A11yViolation,
+  AuditMetrics,
+  AuditResult,
+  Preset,
+  WarmupMode,
+} from './types.js';
 import { median } from './util/median.js';
 import { AUDIT_METRIC_KEYS } from './util/variance.js';
 
@@ -27,15 +34,43 @@ const DESKTOP_THROTTLING = {
   cpuSlowdownMultiplier: 1,
 };
 
-// The first run pays for Chrome startup, font loading and DNS. It is measured
-// but never reported or compared, so a baseline is always N steady-state runs.
-const WARMUP_RUNS = 1;
+// Lighthouse is a heavy module tree (~1.6 s to import). Loading it lazily
+// keeps `pulse doctor`, `baseline`, `--version` and library imports fast, and
+// lets the audit start the import alongside the Chrome launch.
+type LighthouseRunner = typeof import('lighthouse').default;
+interface PuppeteerPage {
+  goto(url: string, options: { waitUntil: 'load'; timeout: number }): Promise<unknown>;
+  close(): Promise<void>;
+}
+interface PuppeteerBrowser {
+  newPage(): Promise<PuppeteerPage>;
+  disconnect(): void;
+}
+interface PuppeteerModule {
+  connect(options: { browserURL: string }): Promise<PuppeteerBrowser>;
+}
+let lighthouseModule: Promise<LighthouseRunner> | undefined;
+let puppeteerModule: Promise<PuppeteerModule> | undefined;
+
+function loadLighthouse(): Promise<LighthouseRunner> {
+  lighthouseModule ??= import('lighthouse').then((module) => module.default);
+  return lighthouseModule;
+}
+
+function loadPuppeteer(): Promise<PuppeteerModule> {
+  // Importing Lighthouse already pulls puppeteer-core into the module graph, so
+  // this resolves from cache by the time the warm-up runs. The explicit
+  // dependency keeps strict package managers happy.
+  puppeteerModule ??= import('puppeteer-core').then((module) => module.default as unknown as PuppeteerModule);
+  return puppeteerModule;
+}
 
 export interface AuditOptions {
   preset: Preset;
   runs: number;
   retries?: number;
   timeoutMs?: number;
+  warmup?: WarmupMode;
 }
 
 function richerText(current: string | undefined, next: string | undefined): string | undefined {
@@ -141,11 +176,36 @@ export function pickMedianRun(results: AuditResult[]): AuditResult {
   };
 }
 
+/**
+ * Warms DNS, TLS, the server cache and the JS compiler without paying for a
+ * full Lighthouse trace and axe pass. Best effort: if the preload fails, the
+ * measured runs still decide the result.
+ */
+async function warmUpNavigation(url: string, chromePort: number, timeoutMs: number): Promise<void> {
+  try {
+    const puppeteer = await loadPuppeteer();
+    const browser = await puppeteer.connect({ browserURL: `http://127.0.0.1:${chromePort}` });
+    try {
+      const page = await browser.newPage();
+      try {
+        await page.goto(url, { waitUntil: 'load', timeout: timeoutMs });
+      } finally {
+        await page.close();
+      }
+    } finally {
+      browser.disconnect();
+    }
+  } catch {
+    // A failed preload is not an audit failure; the measured runs follow.
+  }
+}
+
 async function measureOnce(
   url: string,
   chromePort: number,
   options: AuditOptions,
-  runNumber: number,
+  runLabel: number | string,
+  lighthouse: LighthouseRunner,
 ): Promise<AuditResult> {
   const retries = Math.max(0, options.retries ?? 1);
   let lastError: unknown;
@@ -176,7 +236,7 @@ async function measureOnce(
   }
 
   const message = lastError instanceof Error ? lastError.message : String(lastError);
-  throw new Error(`Audit failed for ${url} on run ${runNumber} after ${retries + 1} attempt(s): ${message}`);
+  throw new Error(`Audit failed for ${url} on run ${runLabel} after ${retries + 1} attempt(s): ${message}`);
 }
 
 export async function runAudit(url: string, options: AuditOptions): Promise<AuditResult> {
@@ -187,26 +247,48 @@ export async function runAudit(url: string, options: AuditOptions): Promise<Audi
   const binary = findChromeBinary();
   if (!binary.path) throw new Error(binary.detail);
 
-  const chrome = await chromeLauncher
-    .launch({
-      chromePath: binary.path,
-      // --no-sandbox and --disable-dev-shm-usage are required in containers and
-      // common on WSL, where the default Chrome sandbox cannot start.
-      chromeFlags: ['--headless=new', '--no-sandbox', '--disable-gpu', '--disable-dev-shm-usage'],
-    })
-    .catch((error: unknown) => {
-      const message = error instanceof Error ? error.message : String(error);
-      const context = binary.wsl ? ' WSL tip: install Chrome for Linux inside the distro.' : '';
-      throw new Error(`Could not launch Chrome at ${binary.path}.${context} ${message}`);
-    });
+  const warmup = options.warmup ?? 'navigate';
+  const timeoutMs = options.timeoutMs ?? 120_000;
+
+  // Start the Lighthouse import and the browser together: the import is the
+  // larger of the two, so the Chrome launch is effectively free.
+  const [chromeResult, lighthouseResult] = await Promise.allSettled([
+    chromeLauncher
+      .launch({
+        chromePath: binary.path,
+        // --no-sandbox and --disable-dev-shm-usage are required in containers and
+        // common on WSL, where the default Chrome sandbox cannot start.
+        chromeFlags: ['--headless=new', '--no-sandbox', '--disable-gpu', '--disable-dev-shm-usage'],
+      })
+      .catch((error: unknown) => {
+        const message = error instanceof Error ? error.message : String(error);
+        const context = binary.wsl ? ' WSL tip: install Chrome for Linux inside the distro.' : '';
+        throw new Error(`Could not launch Chrome at ${binary.path}.${context} ${message}`);
+      }),
+    loadLighthouse(),
+  ]);
+
+  if (chromeResult.status === 'rejected') throw chromeResult.reason;
+  if (lighthouseResult.status === 'rejected') {
+    // Do not leak a browser when the module fails to load after it started.
+    await chromeResult.value.kill();
+    throw lighthouseResult.reason;
+  }
+
+  const chrome = chromeResult.value;
+  const lighthouse = lighthouseResult.value;
 
   try {
-    const results: AuditResult[] = [];
+    if (warmup === 'navigate') {
+      await warmUpNavigation(url, chrome.port, timeoutMs);
+    } else if (warmup === 'full') {
+      // Legacy behaviour: pay for one discarded Lighthouse run.
+      await measureOnce(url, chrome.port, options, 'warm-up', lighthouse);
+    }
 
-    for (let run = 0; run < options.runs + WARMUP_RUNS; run += 1) {
-      const result = await measureOnce(url, chrome.port, options, run + 1);
-      if (run < WARMUP_RUNS) continue;
-      results.push(result);
+    const results: AuditResult[] = [];
+    for (let run = 0; run < options.runs; run += 1) {
+      results.push(await measureOnce(url, chrome.port, options, run + 1, lighthouse));
     }
 
     return pickMedianRun(results);

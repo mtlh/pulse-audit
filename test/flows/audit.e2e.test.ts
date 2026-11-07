@@ -22,7 +22,7 @@ describe.skipIf(!enabled || !chrome)('user flow: audit a site against minimums',
     expect(result.code).toBe(0);
     expect(result.stdout).toContain('15 passed');
     expect(result.stderr).toContain('auditing');
-    expect(result.stderr).toContain('1 run + warm-up');
+    expect(result.stderr).toContain('1 run, navigate warm-up');
 
     const report = await readReport(dir);
     expect(report.failed).toBe(0);
