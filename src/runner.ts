@@ -1,4 +1,5 @@
 import * as chromeLauncher from 'chrome-launcher';
+import { resolveAuthHeaders } from './auth.js';
 import { findChromeBinary } from './chrome.js';
 import { countViolationNodes, violationKey } from './compare.js';
 import { extractResult, worstImpact } from './extract.js';
@@ -8,6 +9,7 @@ import type {
   A11yViolation,
   AuditMetrics,
   AuditResult,
+  AuthConfig,
   Preset,
   WarmupMode,
 } from './types.js';
@@ -70,6 +72,8 @@ export interface AuditOptions {
   runs: number;
   retries?: number;
   timeoutMs?: number;
+  /** Bearer or Basic auth, applied as an extra request header to every page request. */
+  auth?: AuthConfig;
   warmup?: WarmupMode;
 }
 
@@ -206,6 +210,7 @@ async function measureOnce(
   options: AuditOptions,
   runLabel: number | string,
   lighthouse: LighthouseRunner,
+  extraHeaders: Record<string, string> | undefined,
 ): Promise<AuditResult> {
   const retries = Math.max(0, options.retries ?? 1);
   let lastError: unknown;
@@ -222,6 +227,9 @@ async function measureOnce(
         throttling: options.preset === 'mobile' ? MOBILE_THROTTLING : DESKTOP_THROTTLING,
         throttlingMethod: 'simulate',
         maxWaitForLoad: options.timeoutMs ?? 120_000,
+        // Lighthouse applies these to every request in the audit, so the token
+        // must be scoped to the staging environment rather than production.
+        ...(extraHeaders ? { extraHeaders } : {}),
         // Screenshots are expensive to capture and encode, and Pulse never
         // reads them. Dropping them shortens every run without changing the
         // metrics or axe results that are reported.
@@ -247,6 +255,8 @@ export async function runAudit(url: string, options: AuditOptions): Promise<Audi
   const binary = findChromeBinary();
   if (!binary.path) throw new Error(binary.detail);
 
+  // Resolve once so a missing secret fails before Chrome is launched.
+  const extraHeaders = options.auth ? resolveAuthHeaders(options.auth) : undefined;
   const warmup = options.warmup ?? 'navigate';
   const timeoutMs = options.timeoutMs ?? 120_000;
 
@@ -283,12 +293,12 @@ export async function runAudit(url: string, options: AuditOptions): Promise<Audi
       await warmUpNavigation(url, chrome.port, timeoutMs);
     } else if (warmup === 'full') {
       // Legacy behaviour: pay for one discarded Lighthouse run.
-      await measureOnce(url, chrome.port, options, 'warm-up', lighthouse);
+      await measureOnce(url, chrome.port, options, 'warm-up', lighthouse, extraHeaders);
     }
 
     const results: AuditResult[] = [];
     for (let run = 0; run < options.runs; run += 1) {
-      results.push(await measureOnce(url, chrome.port, options, run + 1, lighthouse));
+      results.push(await measureOnce(url, chrome.port, options, run + 1, lighthouse, extraHeaders));
     }
 
     return pickMedianRun(results);

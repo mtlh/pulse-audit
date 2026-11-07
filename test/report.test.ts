@@ -1,8 +1,21 @@
 import { describe, expect, it, vi } from 'vitest';
 import { defaultConfig } from '../src/config.js';
-import { REPORT_VERSION, buildReport, reportEntry, type ReportInput } from '../src/report.js';
+import {
+  REPORT_VERSION,
+  buildReport,
+  reportEntry,
+  type ApiReportInput,
+  type ReportInput,
+} from '../src/report.js';
 import { printReport } from '../src/reporters/terminal.js';
-import type { A11yImpact, A11yViolation, AuditMetrics, AuditResult, PulseConfig } from '../src/types.js';
+import type {
+  A11yImpact,
+  A11yViolation,
+  ApiResult,
+  AuditMetrics,
+  AuditResult,
+  PulseConfig,
+} from '../src/types.js';
 
 const METRICS: AuditMetrics = {
   lcp: 1000,
@@ -62,6 +75,30 @@ function input(
   return { result: audit, baseline, config: cfg };
 }
 
+function apiResult(overrides: Partial<ApiResult> = {}): ApiResult {
+  return {
+    url: 'https://api.example.com/items',
+    method: 'GET',
+    runs: 3,
+    capturedAt: '2026-11-02T00:00:00.000Z',
+    metrics: { ttfb: 120, duration: 300, bytes: 2048, status: 200 },
+    ...overrides,
+  };
+}
+
+function apiInput(
+  result: ApiResult,
+  baseline: ApiResult | null = null,
+  overrides: Partial<ApiReportInput> = {},
+): ApiReportInput {
+  return {
+    result,
+    baseline,
+    budgets: { ttfb: { max: 200 }, duration: { max: 500 } },
+    ...overrides,
+  };
+}
+
 function checkFor(checks: ReturnType<typeof reportEntry>['checks'], metric: string) {
   const found = checks.find((check) => check.metric === metric);
   if (!found) throw new Error(`missing check ${metric}`);
@@ -70,7 +107,7 @@ function checkFor(checks: ReturnType<typeof reportEntry>['checks'], metric: stri
 
 describe('buildReport', () => {
   it('exports the report version', () => {
-    expect(REPORT_VERSION).toBe('2');
+    expect(REPORT_VERSION).toBe('3');
   });
 
   it('removes ignored axe rules from the audit and the a11y checks', () => {
@@ -169,6 +206,49 @@ describe('buildReport', () => {
 
     expect(entry.baseline?.violations).toEqual([]);
     expect(checkFor(entry.checks, 'a11yNew').value).toBe(1);
+  });
+
+  it('adds API results as a separate list and includes their checks in the totals', () => {
+    const ok = apiResult();
+    const slow = apiResult({
+      url: 'https://api.example.com/slow',
+      metrics: { ttfb: 500, duration: 400, bytes: 2048, status: 200 },
+    });
+
+    const report = buildReport([input(result())], [apiInput(ok), apiInput(slow)]);
+
+    expect(report.apiResults).toHaveLength(2);
+    expect(report.results).toHaveLength(1);
+    expect(report.apiResults?.[0]?.checks.find((check) => check.metric === 'status')?.status).toBe('pass');
+    expect(report.apiResults?.[1]?.checks.find((check) => check.metric === 'ttfb')?.status).toBe('fail');
+    expect(report.failed).toBe(1);
+    expect(report.passed).toBeGreaterThan(0);
+    expect(report.passed + report.warned + report.failed).toBe(
+      [
+        ...report.results.flatMap((entry) => entry.checks),
+        ...report.apiResults!.flatMap((entry) => entry.checks),
+      ].length,
+    );
+  });
+
+  it('uses API baseline deltas per metric', () => {
+    const baseline = apiResult({ metrics: { ttfb: 100, duration: 200, bytes: 1024, status: 200 } });
+    const current = apiResult({ metrics: { ttfb: 130, duration: 210, bytes: 2048, status: 200 } });
+
+    const report = buildReport([], [apiInput(current, baseline)]);
+    const checks = report.apiResults?.[0]?.checks ?? [];
+
+    expect(checks.find((check) => check.metric === 'ttfb')?.delta).toBe(30);
+    expect(checks.find((check) => check.metric === 'ttfb')?.baseline).toBe(100);
+    expect(checks.find((check) => check.metric === 'status')?.status).toBe('pass');
+  });
+
+  it('allows an API-only report without pretending it has UI results', () => {
+    const report = buildReport([], [apiInput(apiResult({ runs: 2 }))]);
+
+    expect(report.results).toEqual([]);
+    expect(report.apiResults).toHaveLength(1);
+    expect(report.runs).toBe(2);
   });
 });
 

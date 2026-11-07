@@ -76,7 +76,7 @@ export function escapeHtml(value: string): string {
  */
 export function noteworthyReason(check: Check): string | undefined {
   if (check.status !== 'pass') return check.reason;
-  if (check.reason.startsWith('within budget')) return undefined;
+  if (check.reason.startsWith('within ')) return undefined;
   if (check.reason === 'no new violations') return undefined;
   return check.reason;
 }

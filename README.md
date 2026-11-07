@@ -7,9 +7,10 @@ the pull request only when something got worse — with a report that names the 
 request or axe rule responsible.
 
 > **Status: v0.1.0 is live on npm.** Install/run with
-> `npx @mtlh/pulse-audit@0.1.0`. This tree also contains unreleased changes (baseline v2,
-> readable config units, per-URL budgets, WSL support and the new CLI surface) that are not
-> published yet. Public repo: `github.com/mtlh/pulse-audit`.
+> `npx @mtlh/pulse-audit@0.1.0`. This tree also contains unreleased changes (baseline v3,
+> readable config units, per-URL budgets, authenticated UI/API timing checks, WSL support and
+> the new CLI surface) that are not published yet. Public repo:
+> `github.com/mtlh/pulse-audit`.
 
 ## Why another performance tool
 
@@ -25,6 +26,8 @@ and focuses on:
 - **Median of N runs**, with a navigation warm-up and the spread reported.
 - **New accessibility violations**, broken down by impact, so existing debt does not block
   adoption.
+- **Authenticated pages and APIs**, with bearer tokens or Basic credentials from the
+  environment and separate UI/API timing tables.
 - **One self-contained HTML report** you can attach to a PR.
 - **One config file** that defines every minimum in one place.
 
@@ -95,15 +98,33 @@ are percentages (`10` or `"10%"`); CLS and counts are numbers.
   "urls": [
     "https://example.com/",
     {
-      "url": "https://example.com/app",
+      "url": "https://staging.example.com/app",
       "preset": "desktop",
       "runs": 5,
+      "auth": { "type": "bearer", "token": "${PULSE_TOKEN}" },
       "budgets": {
         "js": { "max": "900kb" },
         "thirdPartyRequests": { "max": 10 }
       }
     }
   ],
+  "api": [
+    {
+      "url": "https://api.example.com/v1/items",
+      "method": "GET",
+      "auth": { "type": "bearer", "token": "${PULSE_TOKEN}" },
+      "runs": 3,
+      "expectStatus": [200],
+      "budgets": {
+        "ttfb": { "max": "300ms", "regression": 20 },
+        "duration": { "max": "800ms", "regression": 20 }
+      }
+    }
+  ],
+  "apiBudgets": {
+    "ttfb": { "regression": 20, "severity": "warn" },
+    "duration": { "regression": 20, "severity": "warn" }
+  },
   "budgets": {
     "lcp": { "max": "2.5s", "regression": "10%" },
     "cls": { "max": 0.05, "regression": 20 },
@@ -128,24 +149,48 @@ are percentages (`10` or `"10%"`); CLS and counts are numbers.
 }
 ```
 
-- `urls` entries may be plain strings or objects with `preset`, `runs` and `budgets`
-  overrides. Page budgets deep-merge over the global block.
+- `urls` entries may be plain strings or objects with `preset`, `runs`, `auth` and `budgets`
+  overrides. Page budgets deep-merge over the global block. An API-only project can set
+  `"urls": []`; every config needs at least one page URL or API endpoint.
+- `api` entries are measured with Node's `fetch`, not Lighthouse. They support `method`,
+  `headers`, `body`, `auth`, `runs`, `timeoutMs`, `expectStatus` and their own `budgets`.
+  `apiBudgets` supplies defaults that each endpoint deep-merges over.
+- `auth` is `{ "type": "bearer", "token": "..." }` or
+  `{ "type": "basic", "username": "...", "password": "..." }`. Values support `${ENV_VAR}`
+  expansion, so secrets stay in CI. Authentication is resolved at run time and is never
+  written to the report or baseline.
+- Authenticated page audits send the header to every request in the Lighthouse run, including
+  third-party requests. Use a token scoped to the staging/test environment.
+- API runs are not warmed up: `runs` requests are executed, so POST/PUT/PATCH/DELETE targets
+  repeat their side effect. Use `runs: 1` for unsafe methods when that matters.
 - `strict: true` makes an absolute `max` breach fail even when the metric improved versus
   the baseline. Warnings stay warnings. Without `strict`, an `error` rule that is over `max`
   but improving passes as a ratchet; a `warn` rule still reports a warning.
-- `retries` is the number of extra attempts after a failed Lighthouse run (default `1`).
-- `timeoutMs` maps to Lighthouse `maxWaitForLoad` (default `120000`).
-- `warmup` controls what happens before the measured runs. `"navigate"` (default) preloads
-  the page once in a plain Chrome tab, which warms DNS, TLS, the server and the JS compiler
-  without paying for a full Lighthouse audit. `"full"` keeps the old behaviour of running and
-  discarding a complete Lighthouse run; `"none"` starts cold. The first measured run is still
-  reported like any other, so the median is unchanged.
+- `retries` is the number of extra attempts after a failed Lighthouse or API request
+  (default `1`).
+- `timeoutMs` maps to Lighthouse `maxWaitForLoad` and to the API request timeout
+  (default `120000`).
+- `warmup` controls what happens before the measured page runs. `"navigate"` (default)
+  preloads the page once in a plain Chrome tab, which warms DNS, TLS, the server and the JS
+  compiler without paying for a full Lighthouse audit. `"full"` keeps the old behaviour of
+  running and discarding a complete Lighthouse run; `"none"` starts cold. The first measured
+  run is still reported like any other, so the median is unchanged. API endpoints are not
+  warmed up.
 - A rule must set `max` or `regression`; an accessibility rule must set `maxViolations`,
   `maxNew` or `maxNewByImpact`. Inert rules are rejected at load time.
 
 Metrics: LCP, CLS, TBT, FCP, TTFB, JavaScript, CSS, fonts, images, total transfer weight,
-requests, third-party bytes, third-party requests, and accessibility violations. Each audit
-also stores one sample per measured run so the report can show min/median/max spread.
+requests, third-party bytes, third-party requests, and accessibility violations. API results
+add TTFB, total duration, HTTP status and response body bytes. Each audit also stores one
+sample per measured run so the report can show min/median/max spread.
+
+### UI and API tables
+
+The terminal, Markdown and HTML reports keep **UI pages** and **API timings** in separate
+tables. API checks report TTFB, total duration, HTTP status and response size, and compare
+against an API baseline keyed by method and URL. A status outside 2xx–3xx warns by default;
+set `expectStatus` on the endpoint to make a specific code or list of codes a hard check.
+API baselines are ignored when the measured run count changes, just like UI baselines.
 
 Read [docs/budgets.md](https://github.com/mtlh/pulse-audit/blob/main/docs/budgets.md) for the
 exact pass/fail semantics, impact buckets and `ignoreRules`.
@@ -160,14 +205,14 @@ pulse init [urls...]        Create .pulse.json
 
 pulse audit [url]           Audit and compare
   -c, --config <path>       Config path (default .pulse.json)
-  -r, --runs <n>            Measured runs (one warm-up is discarded)
+  -r, --runs <n>            Measured runs (UI discards one warm-up; API runs exactly n)
       --preset <preset>     mobile or desktop
       --baseline <path>     Baseline file
       --out <dir>           Report output directory
       --summary <path>      Write a Markdown summary (the pulse block is replaced)
-      --retries <n>         Extra attempts after a failed Lighthouse run
-      --timeout <ms>        Lighthouse maxWaitForLoad
-      --warmup <mode>       Warm-up before measured runs: navigate (default), full or none
+      --retries <n>         Extra attempts after a failed Lighthouse run or API request
+      --timeout <ms>        Lighthouse maxWaitForLoad and API request timeout
+      --warmup <mode>       Warm-up for page runs: navigate (default), full or none
       --github-output       Write report-path and counts to $GITHUB_OUTPUT
       --update-baseline     Save this run as the baseline
       --json                Print only the report JSON to stdout
@@ -206,17 +251,18 @@ audit.
 
 ## Breaking changes in this 0.1.0 tree
 
-- **Baseline v2.** Results are keyed by `preset::url`, so mobile and desktop baselines
-  coexist. Version 1 files are migrated automatically on read and rewritten as version 2 on
-  the next `--update-baseline`; no manual action is required.
+- **Baseline v3.** Page results are keyed by `preset::url`, so mobile and desktop baselines
+  coexist. API results are stored separately and keyed by `api::METHOD::url`. Version 1 and 2
+  files are migrated automatically on read and rewritten as version 3 on the next
+  `--update-baseline`; no manual action is required.
 - **`runAudit` API.** `runAudit(url, config)` became
-  `runAudit(url, { preset, runs, retries, timeoutMs })`.
+  `runAudit(url, { preset, runs, retries, timeoutMs, auth })`.
 - **`buildReport` API.** Positional arguments became `buildReport(inputs)` where each input is
   `{ result, baseline, config }` with the per-URL resolved config.
 - `AuditMetrics` gained `fcp`, `ttfb`, `css`, `fonts`, `total`, `thirdPartyBytes` and
   `thirdPartyRequests`; `AuditResult` gained `samples` and `thirdPartyHeaviest`.
-- **Report JSON schema v2.** `PulseReport.version` is `"2"`, adds `presets`, and includes the
-  expanded metrics and samples.
+- **Report JSON schema v3.** `PulseReport.version` is `"3"` and adds `apiResults` for API
+  endpoints. `presets`, expanded metrics and samples are retained.
 - `--summary` now replaces its `<!-- pulse:start -->` block instead of appending a duplicate
   section.
 
@@ -276,9 +322,11 @@ src/
   chrome.ts         Chrome/WSL detection and fallbacks
   version.ts        version read from package.json
   config.ts         zod schema, units, defaults and per-URL resolution
+  auth.ts           ${ENV_VAR} expansion, bearer/basic headers
   runner.ts         chrome-launcher + Lighthouse, median of N
+  api.ts            authenticated fetch timing, median of N
   extract.ts        LHR → the metrics Pulse cares about
-  compare.ts        budget + baseline evaluation
+  compare.ts        budget + baseline evaluation for UI and API
   report.ts         report assembly
   baseline.ts       baseline read/write/migration, comparability
   format.ts         value formatting and HTML escaping

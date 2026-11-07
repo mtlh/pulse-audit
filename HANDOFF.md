@@ -19,15 +19,18 @@ v0.1.0. The package version intentionally stays at 0.1.0 until the next release.
 
 What changed:
 
-- **Baseline v2**, keyed by `preset::url`. Version 1 files are migrated automatically on read
-  and rewritten as version 2 on the next `--update-baseline`; mobile and desktop baselines now
-  coexist. `--update-baseline` is skipped when any URL fails so a partial baseline cannot be
-  saved.
+- **Baseline v3**, keyed by `preset::url` for pages and `api::METHOD::url` for APIs. Version 1
+  and 2 files are migrated automatically on read and rewritten as version 3 on the next
+  `--update-baseline`; mobile, desktop and API baselines now coexist. `--update-baseline` is
+  skipped when any target fails so a partial baseline cannot be saved.
 - **Samples and variance.** Every measured run is stored in `AuditResult.samples`; the
   terminal, Markdown and HTML reports show the run spread next to the median gate.
-- **Config:** per-URL `preset`/`runs`/`budgets` overrides, readable units (`"2.5s"`,
-  `"250kb"`, `"10%"`), `strict`, `retries` and `timeoutMs`. Inert budget rules are rejected at
-  load time.
+- **Auth + API timings.** Page targets accept bearer or Basic auth with `${ENV_VAR}`
+  substitution. A top-level `api` list measures authenticated HTTP endpoints with `fetch`
+  (TTFB, duration, status, response bytes) and reports them in separate UI/API tables.
+- **Config:** per-URL `preset`/`runs`/`auth`/`budgets` overrides, per-endpoint API settings,
+  readable units (`"2.5s"`, `"250kb"`, `"10%"`), `strict`, `retries` and `timeoutMs`. Inert
+  budget rules are rejected at load time.
 - **Metrics:** FCP, TTFB, CSS, fonts, total weight and third-party bytes/requests; a11y impact
   buckets (`maxNewByImpact`) and `ignoreRules`.
 - **Per-URL error isolation with retries.** One failed URL no longer discards the rest.
@@ -39,13 +42,14 @@ What changed:
   URLs are still reported), `1` for check failures or warnings under `--fail-on warn`, `0`
   otherwise.
 
-Breaking API changes: `runAudit(url, { preset, runs, retries, timeoutMs })` and
-`buildReport(inputs)`. The README has the migration summary.
+Breaking API changes: `runAudit(url, { preset, runs, retries, timeoutMs, auth })` and
+`buildReport(inputs, apiInputs)`. The README has the migration summary.
 
-Verified with `npm run typecheck`, `npm test` (133 passed, 7 Chrome/package flows skipped),
-`npm run build` and `npm run test:e2e` (16 flow tests, including the packed install). The report
-JSON schema is now version 2; the HTML footer shows the package version separately. WSL support
-adds Linux Chrome detection (including snap/Flatpak fallbacks) and WSL-specific doctor guidance.
+Verified with `npm run typecheck`, `npm test` (169 passed, 9 Chrome/package flows skipped),
+`npm run build` and `npm run test:e2e` (19 flow tests, including the packed install and the
+authenticated API flows). The report JSON schema is now version 3; the HTML footer shows the
+package version separately. WSL support adds Linux Chrome detection (including snap/Flatpak
+fallbacks) and WSL-specific doctor guidance.
 
 ---
 
@@ -85,32 +89,34 @@ a11y gating, and a report that diagnoses instead of scoring.
 
 ## 3. Current state
 
-| Area                                | State                                      | Notes                                                                                                    |
-| ----------------------------------- | ------------------------------------------ | -------------------------------------------------------------------------------------------------------- |
-| `package.json` / TS / tsup / vitest | Done                                       | Node 20+, ESM                                                                                            |
-| Config schema + defaults            | **Verified**                               | zod, per-URL overrides, readable units, strict mode                                                      |
-| `init` command                      | **Verified**                               | defaults or measured budgets via `--from`                                                                |
-| Lighthouse runner                   | **Verified (samples + warm-up + retries)** | Lighthouse 12.8.2; median of N, per-run samples, retry and per-URL isolation; navigate/full/none warm-up |
-| LHR extraction                      | **Verified**                               | LCP element, expanded weight metrics and axe nodes checked                                               |
-| Compare / budget logic              | **Verified (live + flows)**                | strict mode, impact buckets and `ignoreRules` unit tested                                                |
-| Baseline read/write + comparability | **Verified (v2 + migration)**              | keyed `preset::url`; v1 migrates on read; major-version comparability                                    |
-| Terminal reporter                   | Done                                       | ANSI colour, run spread, ignored-rule note                                                               |
-| JSON reporter                       | Done                                       | report schema v2                                                                                         |
-| HTML reporter                       | **Verified**                               | self-contained, no JS; variance, third-party and cross-URL sections                                      |
-| Markdown summary                    | Done                                       | for `$GITHUB_STEP_SUMMARY`; replaces its marker block                                                    |
-| GitHub Action                       | **Dropped**                                | owner chose npx/CLI as the delivery path                                                                 |
-| WSL                                 | **Verified (unit)**                        | Linux Chrome detection incl. snap/Flatpak; `doctor` guidance                                             |
-| Unit tests                          | Done                                       | 133 tests in the current tree                                                                            |
-| Integration tests / fixture site    | **Verified**                               | deterministic fixture + 16 CLI flows; `PULSE_E2E=1`                                                      |
-| Docs                                | Updated                                    | budgets, roadmap, WSL, quick start, test commands                                                        |
-| npm publish                         | **Live**                                   | `@mtlh/pulse-audit@0.1.0`; unreleased changes stay on `main` until a version bump                        |
-| Release workflow                    | **Added**                                  | main push â†’ publish new version â†’ tag/release                                                        |
-| PR comment                          | Not done                                   | step summary only                                                                                        |
+| Area                                | State                                      | Notes                                                                                  |
+| ----------------------------------- | ------------------------------------------ | -------------------------------------------------------------------------------------- |
+| `package.json` / TS / tsup / vitest | Done                                       | Node 20+, ESM                                                                          |
+| Config schema + defaults            | **Verified**                               | zod, per-URL overrides, readable units, strict mode                                    |
+| `init` command                      | **Verified**                               | defaults or measured budgets via `--from`                                              |
+| Lighthouse runner                   | **Verified (samples + warm-up + retries)** | Lighthouse 12.8.2; median of N, retries, per-URL isolation, navigate/full/none warm-up |
+| API runner                          | **Verified**                               | authenticated fetch, median of N, no warm-up; TTFB/duration/status/bytes               |
+| LHR extraction                      | **Verified**                               | LCP element, expanded weight metrics and axe nodes checked                             |
+| Compare / budget logic              | **Verified (live + flows)**                | strict mode, impact buckets, `ignoreRules`; UI and API budget evaluation               |
+| Baseline read/write + comparability | **Verified (v3 + migration)**              | pages keyed `preset::url`, API keyed `api::METHOD::url`; v1/v2 migrate on read         |
+| Terminal reporter                   | Done                                       | ANSI colour, run spread, ignored-rule note, UI/API split                               |
+| JSON reporter                       | Done                                       | report schema v3 with `apiResults`                                                     |
+| HTML reporter                       | **Verified**                               | self-contained, no JS; variance, third-party and cross-URL sections                    |
+| Markdown summary                    | Done                                       | for `$GITHUB_STEP_SUMMARY`; replaces its marker block                                  |
+| GitHub Action                       | **Dropped**                                | owner chose npx/CLI as the delivery path                                               |
+| WSL                                 | **Verified (unit)**                        | Linux Chrome detection incl. snap/Flatpak; `doctor` guidance                           |
+| Unit tests                          | Done                                       | 169 tests in the current tree                                                          |
+| Integration tests / fixture site    | **Verified**                               | deterministic fixture + 19 CLI flows; `PULSE_E2E=1`                                    |
+| Docs                                | Updated                                    | budgets, roadmap, WSL, auth/API, quick start, test commands                            |
+| npm publish                         | **Live**                                   | `@mtlh/pulse-audit@0.1.0`; unreleased changes stay on `main` until a version bump      |
+| Release workflow                    | **Added**                                  | main push → publish new version → tag/release                                          |
+| PR comment                          | Not done                                   | step summary only                                                                      |
 
 `npm install` has been run and `package-lock.json` is present. `npm run typecheck`,
-`npm test` (133 tests; 7 Chrome/package flows skipped) and `npm run build` all pass.
-`npm run test:e2e` runs the 16 flow tests, including fixture audits and a packed install.
-`npm run battle-test` exercises the live portfolio through the CLI sequence.
+`npm test` (169 tests; 9 Chrome/package flows skipped) and `npm run build` all pass.
+`npm run test:e2e` runs the 19 flow tests, including fixture audits, authenticated UI/API
+checks and a packed install. `npm run battle-test` exercises the live portfolio through the
+CLI sequence.
 
 ---
 
@@ -118,57 +124,63 @@ a11y gating, and a report that diagnoses instead of scoring.
 
 ```
 pulse-audit/
-â”œâ”€â”€ .pulse.json                    dogfood config for mtlh.vercel.app
-â”œâ”€â”€ docs/
-â”‚   â”œâ”€â”€ budgets.md                 pass/fail semantics
-â”‚   â””â”€â”€ roadmap.md                 v0.2/v0.3/v1.0 scope
-â”œâ”€â”€ src/
-â”‚   â”œâ”€â”€ cli.ts                     init (incl. --from) + audit/baseline/doctor
-â”‚   â”œâ”€â”€ config.ts                  schema, defaults, measured budgets, per-URL merge
-â”‚   â”œâ”€â”€ chrome.ts                  Chrome/WSL detection and fallbacks
-â”‚   â”œâ”€â”€ doctor.ts                  environment and project checks
-â”‚   â”œâ”€â”€ runner.ts                  chrome-launcher + lighthouse, median pick
-â”‚   â”œâ”€â”€ extract.ts                 LHR -> AuditResult
-â”‚   â”œâ”€â”€ compare.ts                 pure budget evaluation
-â”‚   â”œâ”€â”€ report.ts                  ReportEntry assembly
-â”‚   â”œâ”€â”€ baseline.ts                read/write/comparable/merge
-â”‚   â”œâ”€â”€ format.ts                  ms/bytes/score/count formatting + HTML escape
-â”‚   â”œâ”€â”€ version.ts                 version read from package.json
-â”‚   â”œâ”€â”€ reporters/
-â”‚   â”‚   â”œâ”€â”€ terminal.ts
-â”‚   â”‚   â”œâ”€â”€ json.ts
-â”‚   â”‚   â”œâ”€â”€ html.ts                renderHtml + writeHtmlReport
-â”‚   â”‚   â”œâ”€â”€ summary.ts             Markdown for job summary
-â”‚   â”‚   â””â”€â”€ spread.ts              shared min/median/max spread rows
-â”‚   â”œâ”€â”€ util/                      units, median, variance, impact order
-â”‚   â””â”€â”€ index.ts                   public API
-â”œâ”€â”€ scripts/
-â”‚   â”œâ”€â”€ run-e2e.mjs                builds, then runs test/flows
-â”‚   â””â”€â”€ battle-test.mjs            live portfolio sequence
-â””â”€â”€ test/
-    â”œâ”€â”€ baseline.test.ts
-    â”œâ”€â”€ chrome.test.ts
-    â”œâ”€â”€ compare.test.ts
-    â”œâ”€â”€ config.test.ts
-    â”œâ”€â”€ doctor.test.ts
-    â”œâ”€â”€ extract.test.ts
-    â”œâ”€â”€ format.test.ts
-    â”œâ”€â”€ html.test.ts
-    â”œâ”€â”€ median.test.ts
-    â”œâ”€â”€ median-run.test.ts
-    â”œâ”€â”€ report.test.ts
-    â”œâ”€â”€ summary.test.ts
-    â”œâ”€â”€ variance.test.ts
-    â””â”€â”€ flows/
-        â”œâ”€â”€ fixture.ts             deterministic local site
-        â”œâ”€â”€ helpers.ts             CLI runner, temp dirs, budgets
-        â”œâ”€â”€ init.test.ts           no-Chrome init/error flows
-        â”œâ”€â”€ audit.e2e.test.ts      pass/fail outputs and --no-fail
-        â”œâ”€â”€ baseline.e2e.test.ts   baseline, deltas and new axe debt
-        â”œâ”€â”€ init-from.e2e.test.ts  derive budgets from a measured page
-        â”œâ”€â”€ json.e2e.test.ts       --json and --fail-on
-        â”œâ”€â”€ desktop.e2e.test.ts    desktop preset
-        â””â”€â”€ package.e2e.test.ts    npm pack + install + audit
+├── .pulse.json                    dogfood config for mtlh.vercel.app
+├── docs/
+│   ├── budgets.md                 pass/fail semantics
+│   └── roadmap.md                 v0.2/v0.3/v1.0 scope
+├── src/
+│   ├── cli.ts                     init (incl. --from) + audit/baseline/doctor
+│   ├── config.ts                  schema, defaults, measured budgets, per-URL/API merge
+│   ├── auth.ts                    ${ENV_VAR} expansion, bearer/basic headers
+│   ├── chrome.ts                  Chrome/WSL detection and fallbacks
+│   ├── doctor.ts                  environment and project checks
+│   ├── runner.ts                  chrome-launcher + lighthouse, median pick
+│   ├── api.ts                     authenticated fetch timing, median pick
+│   ├── extract.ts                 LHR -> AuditResult
+│   ├── compare.ts                 pure budget evaluation
+│   ├── report.ts                  ReportEntry assembly
+│   ├── baseline.ts                read/write/comparable/merge
+│   ├── format.ts                  ms/bytes/score/count formatting + HTML escape
+│   ├── version.ts                 version read from package.json
+│   ├── reporters/
+│   │   ├── terminal.ts
+│   │   ├── json.ts
+│   │   ├── html.ts                renderHtml + writeHtmlReport
+│   │   ├── summary.ts             Markdown for job summary
+│   │   └── spread.ts              shared min/median/max spread rows
+│   ├── util/                      units, median, variance, impact order
+│   └── index.ts                   public API
+├── scripts/
+│   ├── run-e2e.mjs                builds, then runs test/flows
+│   └── battle-test.mjs            live portfolio sequence
+└── test/
+    ├── api.test.ts               fetch timing, auth and API budget checks
+    ├── auth.test.ts              env expansion and bearer/basic headers
+    ├── baseline.test.ts
+    ├── chrome.test.ts
+    ├── compare.test.ts
+    ├── config.test.ts
+    ├── doctor.test.ts
+    ├── extract.test.ts
+    ├── format.test.ts
+    ├── html.test.ts
+    ├── median.test.ts
+    ├── median-run.test.ts
+    ├── report.test.ts
+    ├── summary.test.ts
+    ├── variance.test.ts
+    └── flows/
+        ├── fixture.ts             deterministic local site + protected API routes
+        ├── helpers.ts             CLI runner, temp dirs, budgets
+        ├── init.test.ts           no-Chrome init/error flows
+        ├── api-only.test.ts       no-Chrome API-only config flow
+        ├── api.e2e.test.ts        authenticated page + API timing flow
+        ├── audit.e2e.test.ts      pass/fail outputs and --no-fail
+        ├── baseline.e2e.test.ts   baseline, deltas and new axe debt
+        ├── init-from.e2e.test.ts  derive budgets from a measured page
+        ├── json.e2e.test.ts       --json and --fail-on
+        ├── desktop.e2e.test.ts    desktop preset
+        └── package.e2e.test.ts    npm pack + install + audit
 ```
 
 ---
@@ -243,7 +255,7 @@ If Lighthouse fails, check in this order:
 1. **Strict mode.** Implemented as `"strict": true` at the config root, default false.
 2. **Multi-URL PR runs.** Current default audits every URL sequentially. Prefer one job per
    URL at scale.
-3. **Desktop preset.** Implemented in the runner and keyed separately in baseline v2.
+3. **Desktop preset.** Implemented in the runner and keyed separately in baseline v3.
 4. **History storage.** v0 uses a workflow artifact. A trend chart needs durable storage
    (`gh-pages` or a small JSON in a `pulse-history` branch). Do not add a database.
 5. **PR comment.** The step summary is enough for v0. Add Octokit + a hidden marker when
@@ -378,7 +390,8 @@ from 'chrome-launcher'`.
 
 - Store `preset`, `runs`, `lighthouseVersion` in every result.
 - `comparableBaseline()` returns null on mismatch. Never compare across Lighthouse majors.
-- Baseline file: `{ version: 1, results: { [url]: AuditResult } }`.
+- Baseline file: `{ version: 3, results: { [preset::url]: AuditResult }, apiResults: { [api::METHOD::url]: ApiResult } }`.
+  v1 and v2 files migrate on read. UI and API baselines are keyed separately.
 - Do not commit `.pulse/`; it is gitignored.
 
 ### Distribution

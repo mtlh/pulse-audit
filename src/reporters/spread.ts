@@ -1,6 +1,6 @@
 import { formatRange } from '../format.js';
-import type { AuditMetrics, Check, ReportEntry } from '../types.js';
-import { metricSpreads, type MetricStat } from '../util/variance.js';
+import type { ApiMetricKey, ApiReportEntry, AuditMetrics, Check, ReportEntry } from '../types.js';
+import { metricSpreads, metricStat, type MetricStat } from '../util/variance.js';
 
 export interface SpreadRow {
   check: Check;
@@ -29,6 +29,29 @@ export function spreadRows(entry: ReportEntry): SpreadRow[] {
 /** Compact `LCP 1.48–1.61s` fragments for the one-line spread summaries. */
 export function spreadParts(entry: ReportEntry): string[] {
   return spreadRows(entry).map(
+    ({ check, stat }) => `${check.label} ${formatRange(stat.min, stat.max, check.format)}`,
+  );
+}
+
+const API_SPREAD_KEYS: ApiMetricKey[] = ['ttfb', 'duration', 'bytes'];
+
+export function apiSpreadRows(entry: ApiReportEntry): SpreadRow[] {
+  const samples = entry.result.samples;
+  if (!samples || samples.length < 2) return [];
+
+  const rows: SpreadRow[] = [];
+  for (const check of entry.checks) {
+    if (!API_SPREAD_KEYS.includes(check.metric as ApiMetricKey)) continue;
+    const key = check.metric as ApiMetricKey;
+    const stat = metricStat(samples.map((sample) => sample[key]));
+    if (stat.max === stat.min) continue;
+    rows.push({ check, stat });
+  }
+  return rows;
+}
+
+export function apiSpreadParts(entry: ApiReportEntry): string[] {
+  return apiSpreadRows(entry).map(
     ({ check, stat }) => `${check.label} ${formatRange(stat.min, stat.max, check.format)}`,
   );
 }

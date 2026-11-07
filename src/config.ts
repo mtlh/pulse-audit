@@ -1,7 +1,19 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
 import { z } from 'zod';
-import type { A11yBudget, AuditResult, BudgetRule, BudgetSet, PageTarget, PulseConfig } from './types.js';
+import type {
+  A11yBudget,
+  ApiBudgetSet,
+  ApiTarget,
+  AuditResult,
+  BudgetRule,
+  BudgetSet,
+  HttpMethod,
+  PageTarget,
+  PulseConfig,
+  ResolvedApiTarget,
+  ResolvedPageConfig,
+} from './types.js';
 import { parseBytes, parseCount, parseDuration, parsePercent, parseScore } from './util/units.js';
 
 type UnitParser = (value: unknown) => unknown;
@@ -93,11 +105,78 @@ const auditUrlSchema = z
     message: 'URL must start with http:// or https://',
   });
 
+const authSchema = z.discriminatedUnion('type', [
+  z
+    .object({
+      type: z.literal('bearer'),
+      token: z.string().min(1),
+    })
+    .strict(),
+  z
+    .object({
+      type: z.literal('basic'),
+      username: z.string().min(1),
+      password: z.string().min(1),
+    })
+    .strict(),
+]);
+
+const apiBudgetsSchema = z
+  .object({
+    ttfb: metricBudgetSchema(parseDuration).optional(),
+    duration: metricBudgetSchema(parseDuration).optional(),
+    bytes: metricBudgetSchema(parseBytes).optional(),
+  })
+  .strict();
+
+// API latency is environment-specific, so the defaults only gate regressions
+// and stay warnings until a team opts into absolute maxima.
+function defaultApiBudgets(): ApiBudgetSet {
+  return {
+    ttfb: { regression: 20, severity: 'warn' },
+    duration: { regression: 20, severity: 'warn' },
+  };
+}
+
+const HTTP_METHODS = [
+  'GET',
+  'HEAD',
+  'POST',
+  'PUT',
+  'PATCH',
+  'DELETE',
+  'OPTIONS',
+] as const satisfies readonly HttpMethod[];
+
+const statusCodeSchema = z.number().int().min(100).max(599);
+
+const apiTargetSchema = z
+  .object({
+    url: auditUrlSchema,
+    method: z.enum(HTTP_METHODS).optional(),
+    headers: z.record(z.string()).optional(),
+    body: z.string().optional(),
+    auth: authSchema.optional(),
+    runs: z.number().int().min(1).max(10).optional(),
+    timeoutMs: z.number().int().positive().optional(),
+    expectStatus: z.union([statusCodeSchema, z.array(statusCodeSchema).min(1)]).optional(),
+    budgets: apiBudgetsSchema.optional(),
+  })
+  .strict()
+  .refine(
+    (target) => {
+      const method = target.method ?? 'GET';
+      return target.body === undefined || (method !== 'GET' && method !== 'HEAD');
+    },
+    { message: 'GET and HEAD API targets cannot set a request body.', path: ['body'] },
+  );
+
 const pageTargetSchema = z
   .object({
     url: auditUrlSchema,
     preset: z.enum(['mobile', 'desktop']).optional(),
     runs: z.number().int().min(1).max(10).optional(),
+    auth: authSchema.optional(),
     budgets: budgetsSchema.optional(),
   })
   .strict();
@@ -110,8 +189,10 @@ export const configSchema = z
     retries: z.number().int().nonnegative().max(10).default(1),
     timeoutMs: z.number().int().positive().default(120_000),
     warmup: z.enum(['full', 'navigate', 'none']).default('navigate'),
-    urls: z.array(z.union([auditUrlSchema, pageTargetSchema])).min(1),
+    urls: z.array(z.union([auditUrlSchema, pageTargetSchema])).default([]),
     budgets: budgetsSchema.default({}),
+    api: z.array(apiTargetSchema).default([]),
+    apiBudgets: apiBudgetsSchema.default(defaultApiBudgets),
     report: z
       .object({
         outDir: z.string().min(1).default('.pulse'),
@@ -119,7 +200,11 @@ export const configSchema = z
       .strict()
       .default({}),
   })
-  .strict();
+  .strict()
+  .refine((config) => config.urls.length > 0 || config.api.length > 0, {
+    message: 'Set at least one page URL or API endpoint.',
+    path: ['urls'],
+  });
 
 export class PulseConfigError extends Error {
   constructor(
@@ -194,22 +279,51 @@ function mergeBudgets(base: BudgetSet, override?: Partial<BudgetSet>): BudgetSet
   return merged;
 }
 
+function mergeApiBudgets(base?: ApiBudgetSet, override?: Partial<ApiBudgetSet>): ApiBudgetSet {
+  const merged: ApiBudgetSet = { ...(base ?? {}) };
+  if (!override) return merged;
+
+  for (const key of ['ttfb', 'duration', 'bytes'] as const) {
+    const rule = mergeBudgetRule(base?.[key], override[key]);
+    if (rule) merged[key] = rule;
+  }
+
+  return merged;
+}
+
 /** Apply one URL's page-level overrides on top of the global config. */
-export function resolvePageConfig(config: PulseConfig, target: string | PageTarget): PulseConfig {
+export function resolvePageConfig(config: PulseConfig, target: string | PageTarget): ResolvedPageConfig {
   const page: PageTarget = typeof target === 'string' ? { url: target } : target;
 
   return {
     ...config,
     preset: page.preset ?? config.preset,
     runs: page.runs ?? config.runs,
+    auth: page.auth,
     urls: [page.url],
     budgets: page.budgets ? mergeBudgets(config.budgets, page.budgets) : { ...config.budgets },
   };
 }
 
 /** One fully resolved config per URL, in declaration order. */
-export function resolveTargets(config: PulseConfig): PulseConfig[] {
+export function resolveTargets(config: PulseConfig): ResolvedPageConfig[] {
   return config.urls.map((target) => resolvePageConfig(config, target));
+}
+
+/** One fully resolved target per API endpoint, in declaration order. */
+export function resolveApiTargets(config: PulseConfig): ResolvedApiTarget[] {
+  return (config.api ?? []).map((target: ApiTarget) => ({
+    url: target.url,
+    method: target.method ?? 'GET',
+    headers: target.headers,
+    body: target.body,
+    auth: target.auth,
+    runs: target.runs ?? config.runs,
+    retries: config.retries ?? 1,
+    timeoutMs: target.timeoutMs ?? config.timeoutMs ?? 120_000,
+    expectStatus: target.expectStatus,
+    budgets: mergeApiBudgets(config.apiBudgets, target.budgets),
+  }));
 }
 
 /** The URL from a config that `resolveTargets` has reduced to one target. */
@@ -284,6 +398,7 @@ export function defaultConfig(urls: string[]): PulseConfig {
     timeoutMs: 120_000,
     warmup: 'navigate',
     urls,
+    api: [],
     budgets: {
       lcp: { max: 2500, regression: 10 },
       cls: { max: 0.05, regression: 20 },
@@ -304,6 +419,7 @@ export function defaultConfig(urls: string[]): PulseConfig {
         maxNewByImpact: { critical: 0, serious: 0 },
       },
     },
+    apiBudgets: defaultApiBudgets(),
     report: { outDir: '.pulse' },
   };
 }
@@ -314,6 +430,7 @@ function serializeTarget(target: string | PageTarget): string | PageTarget {
   const page: PageTarget = { url: target.url };
   if (target.preset !== undefined) page.preset = target.preset;
   if (target.runs !== undefined) page.runs = target.runs;
+  if (target.auth !== undefined) page.auth = target.auth;
   if (target.budgets !== undefined && Object.keys(target.budgets).length > 0) {
     page.budgets = target.budgets;
   }
@@ -321,9 +438,25 @@ function serializeTarget(target: string | PageTarget): string | PageTarget {
   const hasOverrides =
     page.preset !== undefined ||
     page.runs !== undefined ||
+    page.auth !== undefined ||
     (page.budgets !== undefined && Object.keys(page.budgets).length > 0);
 
   return hasOverrides ? page : page.url;
+}
+
+function serializeApiTarget(target: ApiTarget): ApiTarget {
+  const api: ApiTarget = { url: target.url };
+  if (target.method !== undefined) api.method = target.method;
+  if (target.headers !== undefined && Object.keys(target.headers).length > 0) api.headers = target.headers;
+  if (target.body !== undefined) api.body = target.body;
+  if (target.auth !== undefined) api.auth = target.auth;
+  if (target.runs !== undefined) api.runs = target.runs;
+  if (target.timeoutMs !== undefined) api.timeoutMs = target.timeoutMs;
+  if (target.expectStatus !== undefined) api.expectStatus = target.expectStatus;
+  if (target.budgets !== undefined && Object.keys(target.budgets).length > 0) {
+    api.budgets = target.budgets;
+  }
+  return api;
 }
 
 export async function writeConfig(path: string, config: PulseConfig): Promise<void> {
@@ -334,6 +467,16 @@ export async function writeConfig(path: string, config: PulseConfig): Promise<vo
     ...clean,
     urls: clean.urls.map(serializeTarget),
   };
+
+  const api = (clean.api ?? []).map(serializeApiTarget);
+  if (api.length > 0) {
+    serializable.api = api;
+    if (clean.apiBudgets) serializable.apiBudgets = clean.apiBudgets;
+  } else {
+    // Do not make every UI-only config look like it contains API settings.
+    delete serializable.api;
+    delete serializable.apiBudgets;
+  }
 
   await mkdir(dirname(path), { recursive: true });
   await writeFile(path, `${JSON.stringify(serializable, null, 2)}\n`, 'utf8');

@@ -1,13 +1,30 @@
-import { compareResult, countViolationNodes, filterIgnoredViolations } from './compare.js';
-import type { AuditResult, Preset, PulseConfig, PulseReport, ReportEntry } from './types.js';
+import { compareApiResult, compareResult, countViolationNodes, filterIgnoredViolations } from './compare.js';
+import type {
+  ApiBudgetSet,
+  ApiReportEntry,
+  ApiResult,
+  AuditResult,
+  Preset,
+  PulseConfig,
+  PulseReport,
+  ReportEntry,
+} from './types.js';
 
-// v2 adds the expanded metric set, per-run samples and third-party details.
-export const REPORT_VERSION = '2';
+// v3 adds the separate authenticated API timing results.
+export const REPORT_VERSION = '3';
 
 export interface ReportInput {
   result: AuditResult;
   baseline: AuditResult | null;
   config: PulseConfig;
+}
+
+export interface ApiReportInput {
+  result: ApiResult;
+  baseline: ApiResult | null;
+  budgets: ApiBudgetSet;
+  strict?: boolean;
+  expectStatus?: number | number[];
 }
 
 /**
@@ -36,24 +53,48 @@ export function reportEntry(input: ReportInput): ReportEntry {
   return entry;
 }
 
-export function buildReport(inputs: ReportInput[]): PulseReport {
+export function apiReportEntry(input: ApiReportInput): ApiReportEntry {
+  return {
+    url: input.result.url,
+    method: input.result.method,
+    result: input.result,
+    baseline: input.baseline,
+    checks: compareApiResult(input.result, input.baseline, {
+      budgets: input.budgets,
+      strict: input.strict,
+      expectStatus: input.expectStatus,
+    }),
+  };
+}
+
+export function buildReport(inputs: ReportInput[], apiInputs: ApiReportInput[] = []): PulseReport {
   const entries = inputs.map(reportEntry);
-  const checks = entries.flatMap((entry) => entry.checks);
+  const apiResults = apiInputs.map(apiReportEntry);
+  const checks = [
+    ...entries.flatMap((entry) => entry.checks),
+    ...apiResults.flatMap((entry) => entry.checks),
+  ];
 
   const presets: Preset[] = [];
   for (const entry of entries) {
     if (!presets.includes(entry.audit.preset)) presets.push(entry.audit.preset);
   }
 
-  return {
+  const uiRuns = entries.reduce((max, entry) => Math.max(max, entry.audit.runs), 0);
+  const apiRuns = apiResults.reduce((max, entry) => Math.max(max, entry.result.runs), 0);
+
+  const report: PulseReport = {
     version: REPORT_VERSION,
     generatedAt: new Date().toISOString(),
     preset: presets[0] ?? inputs[0]?.config.preset ?? 'mobile',
     presets,
-    runs: entries.reduce((max, entry) => Math.max(max, entry.audit.runs), 0),
+    runs: Math.max(uiRuns, apiRuns),
     results: entries,
     failed: checks.filter((check) => check.status === 'fail').length,
     warned: checks.filter((check) => check.status === 'warn').length,
     passed: checks.filter((check) => check.status === 'pass').length,
   };
+
+  if (apiResults.length > 0) report.apiResults = apiResults;
+  return report;
 }

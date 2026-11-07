@@ -3,13 +3,15 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import {
+  apiBaselineKey,
   baselineKey,
+  comparableApiBaseline,
   comparableBaseline,
   mergeBaseline,
   pruneBaseline,
   readBaseline,
 } from '../src/baseline.js';
-import type { AuditMetrics, AuditResult, BaselineFile } from '../src/types.js';
+import type { ApiResult, AuditMetrics, AuditResult, BaselineFile } from '../src/types.js';
 
 function metrics(overrides: Partial<AuditMetrics> = {}): AuditMetrics {
   return {
@@ -45,6 +47,17 @@ function result(overrides: Partial<AuditResult> = {}): AuditResult {
   };
 }
 
+function apiResult(overrides: Partial<ApiResult> = {}): ApiResult {
+  return {
+    url: 'https://api.example.com/items',
+    method: 'GET',
+    runs: 3,
+    capturedAt: '2026-11-02T00:00:00.000Z',
+    metrics: { ttfb: 120, duration: 300, bytes: 2048, status: 200 },
+    ...overrides,
+  };
+}
+
 async function withTempFile(
   name: string,
   contents: unknown,
@@ -61,7 +74,7 @@ async function withTempFile(
 }
 
 describe('baseline', () => {
-  it('migrates a v1 file to v2 keys using each result preset', async () => {
+  it('migrates a v1 file to v3 keys using each result preset', async () => {
     const desktop = result({ preset: 'desktop' });
     const fallback = { ...result({ url: 'https://example.com/legacy' }), preset: undefined };
 
@@ -75,7 +88,7 @@ describe('baseline', () => {
 
     await withTempFile('baseline.json', v1, async (path) => {
       const file = await readBaseline(path);
-      expect(file.version).toBe(2);
+      expect(file.version).toBe(3);
       expect(Object.keys(file.results).sort()).toEqual([
         baselineKey('desktop', 'https://example.com/'),
         baselineKey('mobile', 'https://example.com/legacy'),
@@ -88,19 +101,19 @@ describe('baseline', () => {
   });
 
   it('rejects an unsupported baseline version', async () => {
-    await withTempFile('baseline.json', { version: 3, results: {} }, async (path) => {
+    await withTempFile('baseline.json', { version: 4, results: {} }, async (path) => {
       await expect(readBaseline(path)).rejects.toThrow(/Unsupported baseline format/);
     });
   });
 
   it('keeps mobile and desktop keys side by side after merge', () => {
-    const file: BaselineFile = { version: 2, results: {} };
+    const file: BaselineFile = { version: 3, results: {} };
     const mobile = result({ preset: 'mobile' });
     const desktop = result({ preset: 'desktop' });
 
     const merged = mergeBaseline(file, [mobile, desktop]);
 
-    expect(merged.version).toBe(2);
+    expect(merged.version).toBe(3);
     expect(Object.keys(merged.results).sort()).toEqual([
       baselineKey('desktop', 'https://example.com/'),
       baselineKey('mobile', 'https://example.com/'),
@@ -113,7 +126,7 @@ describe('baseline', () => {
     const mobileKey = baselineKey('mobile', 'https://example.com/');
     const desktopKey = baselineKey('desktop', 'https://example.com/');
     const file: BaselineFile = {
-      version: 2,
+      version: 3,
       results: {
         [mobileKey]: result({ preset: 'mobile' }),
         [desktopKey]: result({ preset: 'desktop' }),
@@ -143,5 +156,50 @@ describe('baseline', () => {
     expect(comparableBaseline(baseline, result({ lighthouseVersion: '12.9.1' }))).toBe(baseline);
     expect(comparableBaseline(baseline, result({ lighthouseVersion: '13.0.0' }))).toBeNull();
     expect(comparableBaseline(baseline, result({ lighthouseVersion: '11.9.0' }))).toBeNull();
+  });
+
+  it('reads a v2 file as v3 with an empty API side', async () => {
+    const v2 = {
+      version: 2,
+      results: { [baselineKey('mobile', 'https://example.com/')]: result() },
+    };
+
+    await withTempFile('baseline.json', v2, async (path) => {
+      const file = await readBaseline(path);
+      expect(file.version).toBe(3);
+      expect(file.apiResults).toEqual({});
+      expect(Object.keys(file.results)).toHaveLength(1);
+    });
+  });
+
+  it('keeps API and UI entries side by side after merge', () => {
+    const file: BaselineFile = { version: 3, results: {} };
+    const api = apiResult();
+
+    const merged = mergeBaseline(file, [result()], [api]);
+
+    expect(merged.version).toBe(3);
+    expect(merged.results[baselineKey('mobile', 'https://example.com/')]).toBeDefined();
+    expect(merged.apiResults?.[apiBaselineKey('GET', api.url)]).toBe(api);
+  });
+
+  it('preserves API entries when a caller prunes only UI keys', () => {
+    const apiKey = apiBaselineKey('GET', 'https://api.example.com/items');
+    const file: BaselineFile = {
+      version: 3,
+      results: {},
+      apiResults: { [apiKey]: apiResult() },
+    };
+
+    expect(pruneBaseline(file, new Set()).apiResults?.[apiKey]).toBeDefined();
+    expect(pruneBaseline(file, new Set(), new Set()).apiResults).toBeUndefined();
+  });
+
+  it('rejects an API baseline with a different method or run count', () => {
+    const baseline = apiResult({ method: 'GET', runs: 3 });
+
+    expect(comparableApiBaseline(baseline, apiResult({ method: 'POST', runs: 3 }))).toBeNull();
+    expect(comparableApiBaseline(baseline, apiResult({ method: 'GET', runs: 5 }))).toBeNull();
+    expect(comparableApiBaseline(baseline, apiResult({ method: 'GET', runs: 3 }))).toBe(baseline);
   });
 });

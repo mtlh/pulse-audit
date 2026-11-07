@@ -5,6 +5,7 @@ export {
   defaultConfig,
   loadConfig,
   PulseConfigError,
+  resolveApiTargets,
   resolvePageConfig,
   resolveTargets,
   targetUrl,
@@ -12,24 +13,31 @@ export {
 } from './config.js';
 export { runAudit, pickMedianRun } from './runner.js';
 export type { AuditOptions } from './runner.js';
+export { runApiAudit, pickMedianApiSample } from './api.js';
+export { expandEnv, resolveAuthHeaders, resolveRequestHeaders } from './auth.js';
 export { findChromeBinary, isWsl, linuxChromeCandidates } from './chrome.js';
 export type { ChromeLookup, ChromeLookupOptions } from './chrome.js';
 export { extractResult, worstImpact, isA11yImpact } from './extract.js';
 export {
+  compareApiResult,
   compareResult,
   countNewViolations,
   countNewViolationsByImpact,
   countViolationNodes,
   countViolationNodesByImpact,
+  expectedStatus,
   filterIgnoredViolations,
   violationKey,
 } from './compare.js';
-export { buildReport, reportEntry, REPORT_VERSION } from './report.js';
-export type { ReportInput } from './report.js';
+export type { ApiCompareOptions } from './compare.js';
+export { apiReportEntry, buildReport, reportEntry, REPORT_VERSION } from './report.js';
+export type { ApiReportInput, ReportInput } from './report.js';
 export {
+  apiBaselineKey,
   BASELINE_VERSION,
   baselineKey,
   baselinePath,
+  comparableApiBaseline,
   comparableBaseline,
   lighthouseMajor,
   mergeBaseline,
@@ -38,7 +46,7 @@ export {
   writeBaseline,
 } from './baseline.js';
 export { printReport } from './reporters/terminal.js';
-export { spreadParts, spreadRows } from './reporters/spread.js';
+export { apiSpreadParts, apiSpreadRows, spreadParts, spreadRows } from './reporters/spread.js';
 export type { SpreadRow } from './reporters/spread.js';
 export { writeJsonReport } from './reporters/json.js';
 export { renderHtml, writeHtmlReport } from './reporters/html.js';

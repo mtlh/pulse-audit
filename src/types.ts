@@ -9,6 +9,22 @@ export type WarmupMode = 'full' | 'navigate' | 'none';
 export type Severity = 'error' | 'warn';
 export type Status = 'pass' | 'fail' | 'warn';
 export type A11yImpact = 'critical' | 'serious' | 'moderate' | 'minor';
+export type HttpMethod = 'GET' | 'HEAD' | 'POST' | 'PUT' | 'PATCH' | 'DELETE' | 'OPTIONS';
+export type ApiMetricKey = 'ttfb' | 'duration' | 'bytes';
+
+export interface BearerAuth {
+  type: 'bearer';
+  token: string;
+}
+
+export interface BasicAuth {
+  type: 'basic';
+  username: string;
+  password: string;
+}
+
+/** Auth is resolved from the environment at run time; it is never written to a report. */
+export type AuthConfig = BearerAuth | BasicAuth;
 
 export interface BudgetRule {
   /** Absolute ceiling. Fails when exceeded (unless it is not also a regression). */
@@ -16,6 +32,12 @@ export interface BudgetRule {
   /** Percentage change versus baseline that is allowed before failing. */
   regression?: number;
   severity?: Severity;
+}
+
+export interface ApiBudgetSet {
+  ttfb?: BudgetRule;
+  duration?: BudgetRule;
+  bytes?: BudgetRule;
 }
 
 export interface A11yBudget {
@@ -51,7 +73,21 @@ export interface PageTarget {
   url: string;
   preset?: Preset;
   runs?: number;
+  auth?: AuthConfig;
   budgets?: Partial<BudgetSet>;
+}
+
+export interface ApiTarget {
+  url: string;
+  method?: HttpMethod;
+  headers?: Record<string, string>;
+  body?: string;
+  auth?: AuthConfig;
+  runs?: number;
+  timeoutMs?: number;
+  /** Exact status code, or list of exact codes, that count as success. Defaults to 2xx–3xx. */
+  expectStatus?: number | number[];
+  budgets?: Partial<ApiBudgetSet>;
 }
 
 export interface PulseConfig {
@@ -67,9 +103,32 @@ export interface PulseConfig {
   warmup?: WarmupMode;
   urls: Array<string | PageTarget>;
   budgets: BudgetSet;
+  /** Authenticated API endpoints measured with fetch instead of Lighthouse. */
+  api?: ApiTarget[];
+  /** Defaults for every API endpoint; per-target budgets deep-merge over this block. */
+  apiBudgets?: ApiBudgetSet;
   report: {
     outDir: string;
   };
+}
+
+/** A page target after global preset/runs/budgets and its auth block are applied. */
+export interface ResolvedPageConfig extends PulseConfig {
+  auth?: AuthConfig;
+}
+
+/** An API target after global runs/timeout/auth and budget defaults are applied. */
+export interface ResolvedApiTarget {
+  url: string;
+  method: HttpMethod;
+  headers?: Record<string, string>;
+  body?: string;
+  auth?: AuthConfig;
+  runs: number;
+  retries: number;
+  timeoutMs: number;
+  expectStatus?: number | number[];
+  budgets: ApiBudgetSet;
 }
 
 export interface A11yNode {
@@ -133,9 +192,30 @@ export interface AuditResult {
   thirdPartyHeaviest?: RequestSummary[];
 }
 
+export interface ApiMetrics {
+  /** Time until response headers arrived, in milliseconds. */
+  ttfb: number;
+  /** Time until the complete response body was read, in milliseconds. */
+  duration: number;
+  /** Response body size in bytes. */
+  bytes: number;
+  status: number;
+}
+
+export interface ApiResult {
+  url: string;
+  method: HttpMethod;
+  runs: number;
+  capturedAt: string;
+  metrics: ApiMetrics;
+  /** One entry per measured run. API runs are not warmed up. */
+  samples?: ApiMetrics[];
+}
+
 export interface BaselineFile {
-  version: 2;
+  version: 3;
   results: Record<string, AuditResult>;
+  apiResults?: Record<string, ApiResult>;
 }
 
 export interface Check {
@@ -165,6 +245,14 @@ export interface ReportEntry {
   ignoredViolations?: number;
 }
 
+export interface ApiReportEntry {
+  url: string;
+  method: HttpMethod;
+  result: ApiResult;
+  baseline: ApiResult | null;
+  checks: Check[];
+}
+
 export interface PulseReport {
   version: string;
   generatedAt: string;
@@ -172,6 +260,8 @@ export interface PulseReport {
   presets: Preset[];
   runs: number;
   results: ReportEntry[];
+  /** Authenticated API timings, kept separate from UI page checks. */
+  apiResults?: ApiReportEntry[];
   failed: number;
   warned: number;
   passed: number;

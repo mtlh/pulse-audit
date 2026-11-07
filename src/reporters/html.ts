@@ -9,17 +9,28 @@ import {
   formatValue,
   noteworthyReason,
 } from '../format.js';
-import type { A11yImpact, A11yViolation, Check, PulseReport, ReportEntry, RequestSummary } from '../types.js';
+import type {
+  A11yImpact,
+  A11yViolation,
+  ApiReportEntry,
+  Check,
+  PulseReport,
+  ReportEntry,
+  RequestSummary,
+} from '../types.js';
 import { IMPACT_ORDER } from '../util/a11y.js';
 import { VERSION } from '../version.js';
-import { spreadRows } from './spread.js';
+import { apiSpreadRows, spreadRows } from './spread.js';
 
 function statusPill(check: Check): string {
   return `<span class="pill ${check.status}">${check.status}</span>`;
 }
 
 function deltaCell(check: Check): string {
-  if (check.delta === undefined) return '<span class="muted">no baseline</span>';
+  if (check.delta === undefined) {
+    // A status check has a baseline but no meaningful numeric delta.
+    return `<span class="muted">${check.baseline === undefined ? 'no baseline' : '—'}</span>`;
+  }
   return `<span class="delta ${check.delta > 0 ? 'up' : check.delta < 0 ? 'down' : ''}">${escapeHtml(
     formatDelta(check.delta, check.format),
   )}</span> <span class="muted">${escapeHtml(formatPercent(check.deltaPct))}</span>`;
@@ -30,7 +41,7 @@ function budgetCell(check: Check): string {
   return escapeHtml(formatValue(check.max, check.format));
 }
 
-function findCheck(entry: ReportEntry, metric: string): Check | undefined {
+function findCheck(entry: { checks: Check[] }, metric: string): Check | undefined {
   return entry.checks.find((check) => check.metric === metric);
 }
 
@@ -40,8 +51,8 @@ function metricValue(entry: ReportEntry, metric: 'lcp' | 'cls'): string {
   return formatValue(entry.audit.metrics[metric], metric === 'lcp' ? 'ms' : 'score');
 }
 
-function renderChecks(entry: ReportEntry): string {
-  const rows = entry.checks
+function renderChecks(checks: Check[]): string {
+  const rows = checks
     .map(
       (check) => `<tr>
         <td class="metric">${escapeHtml(check.label)}</td>
@@ -53,7 +64,7 @@ function renderChecks(entry: ReportEntry): string {
     )
     .join('');
 
-  const notes = entry.checks
+  const notes = checks
     .map((check) => ({ label: check.label, reason: noteworthyReason(check) }))
     .filter((note): note is { label: string; reason: string } => note.reason !== undefined)
     .map((note) => `<li><strong>${escapeHtml(note.label)}</strong> — ${escapeHtml(note.reason)}</li>`)
@@ -246,7 +257,7 @@ function renderEntry(entry: ReportEntry, index: number): string {
       <h2>${escapeHtml(entry.url)}</h2>
       <p class="muted">${escapeHtml(meta)}</p>
     </div>
-    ${renderChecks(entry)}
+    ${renderChecks(entry.checks)}
     <div class="grid">
       ${renderLcp(entry)}
       ${renderRequests(entry)}
@@ -256,7 +267,51 @@ function renderEntry(entry: ReportEntry, index: number): string {
   </section>`;
 }
 
-function entryCounts(entry: ReportEntry): { failed: number; warned: number; passed: number } {
+function renderApiVariance(entry: ApiReportEntry): string {
+  const rows = apiSpreadRows(entry);
+  if (rows.length === 0) return '';
+
+  const body = rows
+    .map(
+      ({ check, stat }) => `<tr>
+        <td class="metric">${escapeHtml(check.label)}</td>
+        <td class="value">${escapeHtml(formatValue(stat.min, check.format))}</td>
+        <td class="value">${escapeHtml(formatValue(stat.median, check.format))}</td>
+        <td class="value">${escapeHtml(formatValue(stat.max, check.format))}</td>
+        <td class="muted">${escapeHtml(formatPercent(stat.spreadPct))}</td>
+      </tr>`,
+    )
+    .join('');
+
+  return `<section class="card">
+    <h3>Run variance <span class="muted">${entry.result.samples?.length ?? entry.result.runs} runs</span></h3>
+    <table class="checks compact">
+      <thead><tr><th>Metric</th><th>Min</th><th>Median</th><th>Max</th><th>Spread</th></tr></thead>
+      <tbody>${body}</tbody>
+    </table>
+  </section>`;
+}
+
+function renderApiEntry(entry: ApiReportEntry, index: number): string {
+  const metrics = entry.result.metrics;
+  const meta = [
+    String(metrics.status),
+    formatBytes(metrics.bytes),
+    `${entry.result.runs} run${entry.result.runs === 1 ? '' : 's'}`,
+    entry.baseline ? 'compared to baseline' : 'no baseline',
+  ].join(' · ');
+
+  return `<section class="report api-report" id="api-${index + 1}">
+    <div class="report-head">
+      <h2><span class="method">${escapeHtml(entry.method)}</span> ${escapeHtml(entry.url)}</h2>
+      <p class="muted">${escapeHtml(meta)}</p>
+    </div>
+    ${renderChecks(entry.checks)}
+    ${renderApiVariance(entry)}
+  </section>`;
+}
+
+function entryCounts(entry: { checks: Check[] }): { failed: number; warned: number; passed: number } {
   return {
     failed: entry.checks.filter((check) => check.status === 'fail').length,
     warned: entry.checks.filter((check) => check.status === 'warn').length,
@@ -291,19 +346,57 @@ function renderCrossSummary(report: PulseReport): string {
   </section>`;
 }
 
+function renderApiCrossSummary(apiResults: ApiReportEntry[]): string {
+  if (apiResults.length <= 1) return '';
+
+  const rows = apiResults
+    .map((entry, index) => {
+      const counts = entryCounts(entry);
+      const ttfb = findCheck(entry, 'ttfb')?.formatted ?? formatValue(entry.result.metrics.ttfb, 'ms');
+      const duration =
+        findCheck(entry, 'duration')?.formatted ?? formatValue(entry.result.metrics.duration, 'ms');
+      return `<tr>
+        <td class="metric"><a href="#api-${index + 1}"><span class="method">${escapeHtml(
+          entry.method,
+        )}</span> ${escapeHtml(entry.url)}</a></td>
+        <td class="num">${entry.result.metrics.status}</td>
+        <td class="num">${counts.failed}</td>
+        <td class="num">${counts.warned}</td>
+        <td class="num">${counts.passed}</td>
+        <td class="value">${escapeHtml(ttfb)}</td>
+        <td class="value">${escapeHtml(duration)}</td>
+      </tr>`;
+    })
+    .join('');
+
+  return `<section class="card cross-card">
+    <h3>API summary</h3>
+    <table class="checks cross">
+      <thead><tr><th>Endpoint</th><th>Status</th><th>Failed</th><th>Warned</th><th>Passed</th><th>TTFB</th><th>Duration</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table>
+  </section>`;
+}
+
 export function renderHtml(report: PulseReport): string {
+  const apiResults = report.apiResults ?? [];
   const summary = [
     `<span class="chip fail"><strong>${report.failed}</strong> failed</span>`,
     `<span class="chip warn"><strong>${report.warned}</strong> warned</span>`,
     `<span class="chip pass"><strong>${report.passed}</strong> passed</span>`,
   ].join('');
+  const hasBothKinds = report.results.length > 0 && apiResults.length > 0;
+  const title = [
+    ...report.results.map((entry) => entry.url),
+    ...apiResults.map((entry) => `${entry.method} ${entry.url}`),
+  ].join(', ');
 
   return `<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Pulse audit — ${escapeHtml(report.results.map((entry) => entry.url).join(', '))}</title>
+<title>Pulse audit — ${escapeHtml(title)}</title>
 <style>
   :root {
     color-scheme: light dark;
@@ -331,6 +424,8 @@ export function renderHtml(report: PulseReport): string {
   h1 { font-size: 30px; line-height: 1.15; margin: 10px 0 6px; letter-spacing: -.02em; }
   h2 { font-size: 18px; margin: 0; letter-spacing: -.01em; }
   h3 { font-size: 14px; margin: 0 0 10px; letter-spacing: .01em; }
+  .kind-head { margin: 34px 0 0; padding-bottom: 8px; border-bottom: 1px solid var(--border); font-size: 12px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+  .method { display: inline-block; padding: 1px 7px; border: 1px solid var(--border); border-radius: 6px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; font-weight: 700; letter-spacing: .04em; vertical-align: middle; }
   .muted { color: var(--muted); font-weight: 400; }
   .chip { display: inline-block; padding: 6px 12px; border-radius: 999px; border: 1px solid var(--border); background: var(--panel); margin-right: 8px; font-size: 13px; }
   .chip.fail { color: var(--fail); } .chip.warn { color: var(--warn); } .chip.pass { color: var(--pass); }
@@ -399,14 +494,18 @@ export function renderHtml(report: PulseReport): string {
   <header>
     <div class="brand"><span class="dot"></span>pulse audit</div>
     <h1>Performance, accessibility &amp; weight report</h1>
-    <p class="muted">${escapeHtml(report.presets.join(', ') || report.preset)} · ${report.runs} run${
+    <p class="muted">${escapeHtml(report.presets.join(', ') || 'API')} · ${report.runs} run${
       report.runs === 1 ? '' : 's'
     } · ${escapeHtml(new Date(report.generatedAt).toLocaleString('en-GB'))}</p>
     <div style="margin-top:14px">${summary}</div>
   </header>
   ${renderCrossSummary(report)}
+  ${hasBothKinds ? '<div class="kind-head">UI pages</div>' : ''}
   ${report.results.map((entry, index) => renderEntry(entry, index)).join('')}
-  <footer>Generated by pulse-audit v${escapeHtml(VERSION)} · report schema v${escapeHtml(report.version)} · budgets are compared to the baseline captured on the same preset and run count.</footer>
+  ${renderApiCrossSummary(apiResults)}
+  ${apiResults.length > 0 ? '<div class="kind-head">API timings</div>' : ''}
+  ${apiResults.map((entry, index) => renderApiEntry(entry, index)).join('')}
+  <footer>Generated by pulse-audit v${escapeHtml(VERSION)} · report schema v${escapeHtml(report.version)} · UI budgets are compared to a baseline captured on the same preset and run count; API budgets are compared to the same method and run count.</footer>
 </div>
 </body>
 </html>`;
