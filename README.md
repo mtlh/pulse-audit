@@ -23,7 +23,7 @@ Pulse is the workflow layer, not a new measurement engine. It uses Lighthouse fo
 and focuses on:
 
 - **Baseline deltas** instead of flaky absolute scores.
-- **Median of N runs**, with the warm-up discarded and the spread reported.
+- **Median of N runs**, with a navigation warm-up and the spread reported.
 - **New accessibility violations**, broken down by impact, so existing debt does not block
   adoption.
 - **Authenticated pages and APIs**, with bearer tokens or Basic credentials from the
@@ -94,6 +94,7 @@ are percentages (`10` or `"10%"`); CLS and counts are numbers.
   "strict": false,
   "retries": 1,
   "timeoutMs": 120000,
+  "warmup": "navigate",
   "urls": [
     "https://example.com/",
     {
@@ -169,6 +170,12 @@ are percentages (`10` or `"10%"`); CLS and counts are numbers.
   (default `1`).
 - `timeoutMs` maps to Lighthouse `maxWaitForLoad` and to the API request timeout
   (default `120000`).
+- `warmup` controls what happens before the measured page runs. `"navigate"` (default)
+  preloads the page once in a plain Chrome tab, which warms DNS, TLS, the server and the JS
+  compiler without paying for a full Lighthouse audit. `"full"` keeps the old behaviour of
+  running and discarding a complete Lighthouse run; `"none"` starts cold. The first measured
+  run is still reported like any other, so the median is unchanged. API endpoints are not
+  warmed up.
 - A rule must set `max` or `regression`; an accessibility rule must set `maxViolations`,
   `maxNew` or `maxNewByImpact`. Inert rules are rejected at load time.
 
@@ -205,6 +212,7 @@ pulse audit [url]           Audit and compare
       --summary <path>      Write a Markdown summary (the pulse block is replaced)
       --retries <n>         Extra attempts after a failed Lighthouse run or API request
       --timeout <ms>        Lighthouse maxWaitForLoad and API request timeout
+      --warmup <mode>       Warm-up for page runs: navigate (default), full or none
       --github-output       Write report-path and counts to $GITHUB_OUTPUT
       --update-baseline     Save this run as the baseline
       --json                Print only the report JSON to stdout

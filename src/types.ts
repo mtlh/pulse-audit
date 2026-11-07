@@ -1,4 +1,11 @@
 export type Preset = 'mobile' | 'desktop';
+/**
+ * How to warm the browser before the measured runs:
+ * - `navigate` loads the page once in a plain Chrome tab (default, cheapest),
+ * - `full` runs and discards a complete Lighthouse audit (legacy behaviour),
+ * - `none` starts measuring on a cold browser.
+ */
+export type WarmupMode = 'full' | 'navigate' | 'none';
 export type Severity = 'error' | 'warn';
 export type Status = 'pass' | 'fail' | 'warn';
 export type A11yImpact = 'critical' | 'serious' | 'moderate' | 'minor';
@@ -92,6 +99,8 @@ export interface PulseConfig {
   retries?: number;
   /** Lighthouse maxWaitForLoad, in milliseconds. */
   timeoutMs?: number;
+  /** Browser warm-up before the measured runs. Defaults to `navigate`. */
+  warmup?: WarmupMode;
   urls: Array<string | PageTarget>;
   budgets: BudgetSet;
   /** Authenticated API endpoints measured with fetch instead of Lighthouse. */

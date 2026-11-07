@@ -188,6 +188,7 @@ export const configSchema = z
     strict: z.boolean().default(false),
     retries: z.number().int().nonnegative().max(10).default(1),
     timeoutMs: z.number().int().positive().default(120_000),
+    warmup: z.enum(['full', 'navigate', 'none']).default('navigate'),
     urls: z.array(z.union([auditUrlSchema, pageTargetSchema])).default([]),
     budgets: budgetsSchema.default({}),
     api: z.array(apiTargetSchema).default([]),
@@ -395,6 +396,7 @@ export function defaultConfig(urls: string[]): PulseConfig {
     strict: false,
     retries: 1,
     timeoutMs: 120_000,
+    warmup: 'navigate',
     urls,
     api: [],
     budgets: {
