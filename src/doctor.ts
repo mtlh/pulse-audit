@@ -28,6 +28,8 @@ export interface DoctorOptions {
   checkChrome?: () => Promise<{ ok: boolean; detail: string; warning?: boolean }>;
   /** Injection point for tests; defaults to a HEAD-then-GET fetch. */
   checkUrl?: (url: string) => Promise<{ ok: boolean; detail: string }>;
+  /** Injection point for tests; defaults to the read-only API probe. */
+  checkApi?: (target: ResolvedApiTarget) => Promise<{ ok: boolean; detail: string }>;
 }
 
 function message(error: unknown): string {
@@ -270,24 +272,37 @@ export async function runDoctor(options: DoctorOptions = {}): Promise<DoctorResu
 
   if (!options.skipNetwork && config) {
     const reachable = options.checkUrl ?? checkUrl;
-    for (const page of resolveTargets(config)) {
-      const url = targetUrl(page);
-      const result = await reachable(url);
-      checks.push({
-        name: `url ${url}`,
-        status: result.ok ? 'pass' : 'fail',
-        detail: result.detail,
-      });
-    }
+    const apiReachable = options.checkApi ?? checkApiTarget;
+    const pages = resolveTargets(config);
+    const apiTargets = resolveApiTargets(config);
 
-    for (const target of resolveApiTargets(config)) {
-      const result = await checkApiTarget(target);
-      checks.push({
-        name: `api ${target.method} ${target.url}`,
-        status: result.ok ? 'pass' : 'fail',
-        detail: result.detail,
-      });
-    }
+    // Doctor is diagnostic, so independent checks can run together. Promise.all
+    // keeps the declared order in the results while overlapping the requests.
+    const [pageChecks, apiChecks] = await Promise.all([
+      Promise.all(
+        pages.map(async (page): Promise<DoctorCheck> => {
+          const url = targetUrl(page);
+          const result = await reachable(url);
+          return {
+            name: `url ${url}`,
+            status: result.ok ? 'pass' : 'fail',
+            detail: result.detail,
+          };
+        }),
+      ),
+      Promise.all(
+        apiTargets.map(async (target): Promise<DoctorCheck> => {
+          const result = await apiReachable(target);
+          return {
+            name: `api ${target.method} ${target.url}`,
+            status: result.ok ? 'pass' : 'fail',
+            detail: result.detail,
+          };
+        }),
+      ),
+    ]);
+
+    checks.push(...pageChecks, ...apiChecks);
   }
 
   return { ok: !checks.some((check) => check.status === 'fail'), checks };
