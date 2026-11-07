@@ -6,16 +6,16 @@ to verify it.
 
 - **Repository:** `github.com/mtlh/pulse-audit`
 - **Owner:** Matthew Harvey (`github.com/mtlh`)
-- **Status:** v0.1.0 live on npm as `@mtlh/pulse-audit`; trustworthy-gate and WSL changes are merged to `main` but still unreleased on npm; npx-first, no composite action
-- **Git:** `main` pushed; `v0.1.0` tagged and pushed
+- **Status:** v0.2.0 live on npm as `@mtlh/pulse-audit`; trustworthy-gate and WSL changes are released; npx-first, no composite action
+- **Git:** `main` pushed; `v0.2.0` tagged and pushed by the release workflow
 - **Related portfolio:** `PortfolioV2` (separate local checkout)
 
 ---
 
-## Unreleased status â€” "trustworthy gate" (still v0.1.0)
+## v0.2.0 release — "trustworthy gate"
 
-The v0.2 scope from `docs/roadmap.md` is implemented on `main` (merged in PR #1) on top of
-v0.1.0. The package version intentionally stays at 0.1.0 until the next release.
+The v0.2 scope from `docs/roadmap.md` shipped as `0.2.0`: it was merged in PR #1 on top of
+v0.1.0 and released by the main-branch workflow.
 
 What changed:
 
@@ -108,7 +108,7 @@ a11y gating, and a report that diagnoses instead of scoring.
 | Unit tests                          | Done                                       | 169 tests in the current tree                                                          |
 | Integration tests / fixture site    | **Verified**                               | deterministic fixture + 19 CLI flows; `PULSE_E2E=1`                                    |
 | Docs                                | Updated                                    | budgets, roadmap, WSL, auth/API, quick start, test commands                            |
-| npm publish                         | **Live**                                   | `@mtlh/pulse-audit@0.1.0`; unreleased changes stay on `main` until a version bump      |
+| npm publish                         | **Live**                                   | `@mtlh/pulse-audit@0.2.0`; release workflow publishes new versions from `main`         |
 | Release workflow                    | **Added**                                  | main push → publish new version → tag/release                                          |
 | PR comment                          | Not done                                   | step summary only                                                                      |
 
@@ -397,7 +397,7 @@ from 'chrome-launcher'`.
 ### Distribution
 
 - The package is published as `@mtlh/pulse-audit`; the binary is `pulse`. Consumers should run
-  `npx @mtlh/pulse-audit@0.1.0 ...`.
+  `npx @mtlh/pulse-audit@0.2.0 ...`.
 - `.github/workflows/release.yml` publishes from `main` only when `package.json` has a version
   not already on npm, waits for registry propagation, then tags and creates a GitHub release.
   It requires the `NPM_TOKEN` repository secret (or trusted publishing configured on npm).

@@ -1,8 +1,8 @@
 # Feature expansion plan
 
-Status: v0.2 ("trustworthy gate") is implemented on `main` (still version 0.1.0 on npm). v0.3
-and v1.0 remain pending. This document answers three questions: what Pulse does well today,
-what it is missing, and which gaps are worth closing in which order.
+Status: v0.2.0 ("trustworthy gate") is released on npm. v0.3 and v1.0 remain pending. This
+document answers three questions: what Pulse does well today, what it is missing, and which
+gaps are worth closing in which order.
 
 Pulse's advantage is the **workflow**, not the measurement. Every item below is judged by
 whether it makes the pass/fail decision more trustworthy, the config clearer, or the failure
