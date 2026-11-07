@@ -39,7 +39,8 @@ const DESKTOP_THROTTLING = {
 // Lighthouse is a heavy module tree (~1.6 s to import). Loading it lazily
 // keeps `pulse doctor`, `baseline`, `--version` and library imports fast, and
 // lets the audit start the import alongside the Chrome launch.
-type LighthouseRunner = typeof import('lighthouse').default;
+type LighthouseModule = typeof import('lighthouse');
+type LighthouseRunner = LighthouseModule['default'];
 interface PuppeteerPage {
   goto(url: string, options: { waitUntil: 'load'; timeout: number }): Promise<unknown>;
   close(): Promise<void>;
@@ -51,12 +52,44 @@ interface PuppeteerBrowser {
 interface PuppeteerModule {
   connect(options: { browserURL: string }): Promise<PuppeteerBrowser>;
 }
-let lighthouseModule: Promise<LighthouseRunner> | undefined;
+let lighthouseModule: Promise<LighthouseModule> | undefined;
 let puppeteerModule: Promise<PuppeteerModule> | undefined;
 
-function loadLighthouse(): Promise<LighthouseRunner> {
-  lighthouseModule ??= import('lighthouse').then((module) => module.default);
+function loadLighthouse(): Promise<LighthouseModule> {
+  // Return the whole namespace so both the runner and `defaultConfig` (used to
+  // derive the audit skip list) come from the same cached import.
+  lighthouseModule ??= import('lighthouse');
   return lighthouseModule;
+}
+
+// The only performance audits Pulse reads. Everything else in the performance
+// category runs a gatherer and/or audit whose result is discarded, so it is
+// skipped to shorten each Lighthouse run.
+export const REQUIRED_PERFORMANCE_AUDITS: ReadonlySet<string> = new Set([
+  'first-contentful-paint',
+  'largest-contentful-paint',
+  'cumulative-layout-shift',
+  'total-blocking-time',
+  'server-response-time',
+  'network-requests',
+  'largest-contentful-paint-element',
+]);
+
+interface LighthouseConfigLike {
+  categories?: Record<string, { auditRefs?: ReadonlyArray<{ id?: string }> }> | null;
+}
+
+/**
+ * Derives the performance audits Pulse does not read from the installed
+ * Lighthouse config. New audits are skipped automatically, and a renamed or
+ * missing config property yields an empty list so the run stays safe.
+ */
+export function computePerformanceSkipAudits(config: LighthouseConfigLike | undefined): string[] {
+  const refs = config?.categories?.performance?.auditRefs;
+  if (!Array.isArray(refs)) return [];
+  return refs
+    .map((ref) => (typeof ref?.id === 'string' ? ref.id : undefined))
+    .filter((id): id is string => id !== undefined && !REQUIRED_PERFORMANCE_AUDITS.has(id));
 }
 
 function loadPuppeteer(): Promise<PuppeteerModule> {
@@ -210,6 +243,7 @@ async function measureOnce(
   options: AuditOptions,
   runLabel: number | string,
   lighthouse: LighthouseRunner,
+  skipAudits: string[],
   extraHeaders: Record<string, string> | undefined,
 ): Promise<AuditResult> {
   const retries = Math.max(0, options.retries ?? 1);
@@ -234,6 +268,10 @@ async function measureOnce(
         // reads them. Dropping them shortens every run without changing the
         // metrics or axe results that are reported.
         disableFullPageScreenshot: true,
+        // Skipping audits Pulse never reads cuts ~15-25% off each run. The
+        // list is derived from the installed config, so it stays in sync with
+        // new Lighthouse audits.
+        ...(skipAudits.length > 0 ? { skipAudits } : {}),
       } as any);
 
       if (!runner) throw new Error('Lighthouse returned no result');
@@ -286,19 +324,22 @@ export async function runAudit(url: string, options: AuditOptions): Promise<Audi
   }
 
   const chrome = chromeResult.value;
-  const lighthouse = lighthouseResult.value;
+  const lighthouse = lighthouseResult.value.default;
+  const skipAudits = computePerformanceSkipAudits(lighthouseResult.value.defaultConfig);
 
   try {
     if (warmup === 'navigate') {
       await warmUpNavigation(url, chrome.port, timeoutMs);
     } else if (warmup === 'full') {
       // Legacy behaviour: pay for one discarded Lighthouse run.
-      await measureOnce(url, chrome.port, options, 'warm-up', lighthouse, extraHeaders);
+      await measureOnce(url, chrome.port, options, 'warm-up', lighthouse, skipAudits, extraHeaders);
     }
 
     const results: AuditResult[] = [];
     for (let run = 0; run < options.runs; run += 1) {
-      results.push(await measureOnce(url, chrome.port, options, run + 1, lighthouse, extraHeaders));
+      results.push(
+        await measureOnce(url, chrome.port, options, run + 1, lighthouse, skipAudits, extraHeaders),
+      );
     }
 
     return pickMedianRun(results);

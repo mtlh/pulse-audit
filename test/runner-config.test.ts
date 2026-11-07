@@ -1,0 +1,41 @@
+import { defaultConfig } from 'lighthouse';
+import { describe, expect, it } from 'vitest';
+import { REQUIRED_PERFORMANCE_AUDITS, computePerformanceSkipAudits } from '../src/runner.js';
+
+// The suite runs against the installed Lighthouse version, so a major bump that
+// removes one of the audits Pulse reads (or changes the `defaultConfig` export)
+// fails here instead of silently returning zeroed metrics at audit time.
+describe('Lighthouse performance audit skip list', () => {
+  const config = defaultConfig as any;
+  const perfAuditRefs: Array<{ id?: string }> | undefined = config?.categories?.performance?.auditRefs;
+  const installedIds = new Set((perfAuditRefs ?? []).map((ref) => ref.id));
+
+  it('exports a usable performance category', () => {
+    expect(Array.isArray(perfAuditRefs)).toBe(true);
+    expect(installedIds.size).toBeGreaterThan(0);
+  });
+
+  it('keeps every required audit in the installed performance category', () => {
+    for (const id of REQUIRED_PERFORMANCE_AUDITS) {
+      expect(installedIds.has(id), `${id} is missing from Lighthouse's performance category`).toBe(true);
+    }
+  });
+
+  it('never skips a required audit and skips the rest', () => {
+    const skipAudits = computePerformanceSkipAudits(config);
+
+    expect(skipAudits.length).toBeGreaterThan(0);
+    for (const id of REQUIRED_PERFORMANCE_AUDITS) {
+      expect(skipAudits, `${id} must not be skipped`).not.toContain(id);
+    }
+    for (const id of skipAudits) {
+      expect(installedIds.has(id), `${id} is not part of the installed performance category`).toBe(true);
+    }
+  });
+
+  it('falls back to an empty skip list when the config shape is missing', () => {
+    expect(computePerformanceSkipAudits(undefined)).toEqual([]);
+    expect(computePerformanceSkipAudits({} as any)).toEqual([]);
+    expect(computePerformanceSkipAudits({ categories: {} } as any)).toEqual([]);
+  });
+});
