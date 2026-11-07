@@ -34,6 +34,7 @@ import { renderMarkdown, upsertSummary } from './reporters/summary.js';
 import { printReport } from './reporters/terminal.js';
 import { runAudit } from './runner.js';
 import type { Preset, PulseConfig, WarmupMode } from './types.js';
+import { eventLoopDrains, flushStream } from './util/exit.js';
 import { VERSION } from './version.js';
 
 type FailOn = 'error' | 'warn' | 'none';
@@ -580,11 +581,33 @@ program
     }
   });
 
-program.parseAsync(process.argv).catch((error: unknown) => {
-  if (error instanceof PulseConfigError) {
-    console.error(pc.red(error.message));
-  } else {
-    console.error(pc.red(`pulse: ${(error as Error).message}`));
+async function run(): Promise<void> {
+  try {
+    await program.parseAsync(process.argv);
+  } catch (error) {
+    if (error instanceof PulseConfigError) {
+      console.error(pc.red(error.message));
+    } else {
+      console.error(pc.red(`pulse: ${(error as Error).message}`));
+    }
+    process.exitCode = 2;
   }
-  process.exitCode = 2;
-});
+
+  // Lighthouse leaves Chrome's ChildProcess and open CDP sockets behind, and
+  // those handles keep Node's event loop alive for several seconds after the
+  // action resolves. Flush the output streams first (CI pipes stdout/stderr),
+  // then give the loop a short chance to drain. Commands that drain exit
+  // naturally, which avoids interrupting an in-flight libuv close: calling
+  // process.exit() while one is pending trips a Windows assertion
+  // (UV_HANDLE_CLOSING). Only handles that will never close get forced out.
+  await Promise.all([flushStream(process.stdout), flushStream(process.stderr)]);
+  if (await eventLoopDrains()) return;
+
+  // Never call process.exit from inside a write callback either; defer one
+  // tick so the exit happens from a clean macrotask.
+  setImmediate(() => {
+    process.exit(process.exitCode ?? 0);
+  });
+}
+
+void run();
