@@ -2,37 +2,9 @@
 import { access, appendFile } from 'node:fs/promises';
 import { Command } from 'commander';
 import pc from 'picocolors';
-import { runApiAudit } from './api.js';
-import {
-  apiBaselineKey,
-  baselineKey,
-  baselinePath,
-  comparableApiBaseline,
-  comparableBaseline,
-  mergeBaseline,
-  pruneBaseline,
-  readBaseline,
-  writeBaseline,
-} from './baseline.js';
-import {
-  budgetsFromResult,
-  configSchema,
-  defaultConfig,
-  loadConfig,
-  PulseConfigError,
-  resolveApiTargets,
-  resolveTargets,
-  targetUrl,
-  writeConfig,
-} from './config.js';
-import { runDoctor, type DoctorCheck } from './doctor.js';
-import { formatValue, type ValueFormat } from './format.js';
-import { buildReport, type ApiReportInput, type ReportInput } from './report.js';
-import { writeHtmlReport } from './reporters/html.js';
-import { writeJsonReport } from './reporters/json.js';
-import { renderMarkdown, upsertSummary } from './reporters/summary.js';
-import { printReport } from './reporters/terminal.js';
-import { runAudit } from './runner.js';
+import type { DoctorCheck } from './doctor.js';
+import type { ValueFormat } from './format.js';
+import type { ApiReportInput, ReportInput } from './report.js';
 import type { Preset, PulseConfig, WarmupMode } from './types.js';
 import { eventLoopDrains, flushStream } from './util/exit.js';
 import { VERSION } from './version.js';
@@ -46,6 +18,14 @@ async function exists(path: string): Promise<boolean> {
   } catch {
     return false;
   }
+}
+
+/**
+ * Config errors are matched by name so the fast paths (--version, --help) never
+ * have to import ./config.js, which pulls in zod.
+ */
+function isConfigError(error: unknown): error is Error {
+  return error instanceof Error && error.name === 'PulseConfigError';
 }
 
 function parseInteger(value: string | undefined, flag: string, min: number, max: number): number | undefined {
@@ -141,6 +121,10 @@ program
 
     for (const url of list) assertHttpUrl(url);
     if (options.from) assertHttpUrl(options.from);
+
+    const { budgetsFromResult, configSchema, defaultConfig, writeConfig } = await import('./config.js');
+    const { formatValue } = await import('./format.js');
+    const { runAudit } = await import('./runner.js');
 
     let config = configSchema.parse(defaultConfig(list)) as PulseConfig;
 
@@ -258,6 +242,25 @@ program
         fail?: boolean;
       },
     ) => {
+      const { runApiAudit } = await import('./api.js');
+      const {
+        apiBaselineKey,
+        baselineKey,
+        baselinePath,
+        comparableApiBaseline,
+        comparableBaseline,
+        mergeBaseline,
+        readBaseline,
+        writeBaseline,
+      } = await import('./baseline.js');
+      const { loadConfig, resolveApiTargets, resolveTargets, targetUrl } = await import('./config.js');
+      const { buildReport } = await import('./report.js');
+      const { writeHtmlReport } = await import('./reporters/html.js');
+      const { writeJsonReport } = await import('./reporters/json.js');
+      const { renderMarkdown, upsertSummary } = await import('./reporters/summary.js');
+      const { printReport } = await import('./reporters/terminal.js');
+      const { runAudit } = await import('./runner.js');
+
       if (url !== undefined) assertHttpUrl(url);
       const config: PulseConfig = await loadConfig(options.config);
 
@@ -471,6 +474,9 @@ baselineCommand
   .description('Show what the baseline contains')
   .option('--baseline <path>', 'baseline file', '.pulse/baseline.json')
   .action(async (options: { baseline: string }) => {
+    const { readBaseline } = await import('./baseline.js');
+    const { formatValue } = await import('./format.js');
+
     const file = await readBaseline(options.baseline);
     const entries = Object.entries(file.results);
     const apiEntries = Object.entries(file.apiResults ?? {});
@@ -517,6 +523,10 @@ baselineCommand
   .option('--baseline <path>', 'baseline file (defaults to the config report outDir)')
   .option('--dry-run', 'show what would be removed without writing')
   .action(async (options: { config: string; baseline?: string; dryRun?: boolean }) => {
+    const { apiBaselineKey, baselineKey, baselinePath, pruneBaseline, readBaseline, writeBaseline } =
+      await import('./baseline.js');
+    const { loadConfig, resolveApiTargets, resolveTargets, targetUrl } = await import('./config.js');
+
     // Load the config first: a broken config must never authorise a prune.
     const config = await loadConfig(options.config);
     const file = options.baseline ?? baselinePath(config.report.outDir);
@@ -555,6 +565,8 @@ program
   .option('--baseline <path>', 'baseline file (defaults to the config report outDir)')
   .option('--skip-network', 'skip URL reachability checks')
   .action(async (options: { config: string; baseline?: string; skipNetwork?: boolean }) => {
+    const { runDoctor } = await import('./doctor.js');
+
     const result = await runDoctor({
       configPath: options.config,
       baselinePath: options.baseline,
@@ -585,7 +597,7 @@ async function run(): Promise<void> {
   try {
     await program.parseAsync(process.argv);
   } catch (error) {
-    if (error instanceof PulseConfigError) {
+    if (isConfigError(error)) {
       console.error(pc.red(error.message));
     } else {
       console.error(pc.red(`pulse: ${(error as Error).message}`));
