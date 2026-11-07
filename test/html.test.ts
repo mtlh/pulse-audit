@@ -1,6 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import { renderHtml } from '../src/reporters/html.js';
-import type { AuditMetrics, AuditResult, Check, PulseReport, ReportEntry } from '../src/types.js';
+import type {
+  ApiReportEntry,
+  ApiResult,
+  AuditMetrics,
+  AuditResult,
+  Check,
+  PulseReport,
+  ReportEntry,
+} from '../src/types.js';
 
 const evil = '<script>window.pwned = 1</script><img src=x onerror="window.pwned = 1">';
 
@@ -129,9 +137,47 @@ function entry(overrides: Partial<ReportEntry> = {}): ReportEntry {
   };
 }
 
+function apiResult(overrides: Partial<ApiResult> = {}): ApiResult {
+  return {
+    url: 'https://api.example.com/items',
+    method: 'GET',
+    runs: 2,
+    capturedAt: '2026-11-02T00:00:00.000Z',
+    metrics: { ttfb: 120, duration: 300, bytes: 2048, status: 200 },
+    samples: [
+      { ttfb: 100, duration: 280, bytes: 2048, status: 200 },
+      { ttfb: 140, duration: 320, bytes: 2048, status: 200 },
+    ],
+    ...overrides,
+  };
+}
+
+function apiEntry(overrides: Partial<ApiReportEntry> = {}): ApiReportEntry {
+  return {
+    url: 'https://api.example.com/items',
+    method: 'GET',
+    result: apiResult(),
+    baseline: null,
+    checks: [
+      check({ metric: 'ttfb', label: 'TTFB', value: 120, formatted: '120ms' }),
+      check({ metric: 'duration', label: 'Duration', value: 300, formatted: '300ms' }),
+      check({
+        metric: 'status',
+        label: 'HTTP status',
+        value: 200,
+        formatted: '200',
+        max: undefined,
+        format: 'count',
+        reason: 'within expected status',
+      }),
+    ],
+    ...overrides,
+  };
+}
+
 function report(overrides: Partial<PulseReport> = {}): PulseReport {
   return {
-    version: '2',
+    version: '3',
     generatedAt: '2026-11-02T00:00:00.000Z',
     preset: 'mobile',
     presets: ['mobile'],
@@ -284,6 +330,59 @@ describe('renderHtml', () => {
     expect(html).toContain('Ignored 2 nodes');
     expect(html).toContain('color-contrast');
     expect(html).toContain('Suppressed findings are not gated');
+  });
+
+  it('renders API timings in their own section with method and status', () => {
+    const html = renderHtml(
+      report({
+        results: [entry()],
+        apiResults: [
+          apiEntry(),
+          apiEntry({
+            url: `https://api.example.com/${evil}`,
+            method: 'POST',
+            checks: [
+              check({
+                metric: 'status',
+                label: 'HTTP status',
+                value: 500,
+                formatted: '500',
+                format: 'count',
+                status: 'fail',
+              }),
+            ],
+          }),
+        ],
+      }),
+    );
+
+    expect(html).toContain('API timings');
+    expect(html).toContain('UI pages');
+    expect(html).toContain('<span class="method">GET</span>');
+    expect(html).toContain('<span class="method">POST</span>');
+    expect(html).toContain('API summary');
+    expect(html).toContain('href="#api-1"');
+    expect(html).toContain('id="api-2"');
+    expect(html).not.toContain('<script>window.pwned');
+  });
+
+  it('labels an API-only report without inventing a UI section', () => {
+    const withApiOnly = renderHtml(report({ results: [], apiResults: [apiEntry()] }));
+    expect(withApiOnly).toContain('API timings');
+    expect(withApiOnly).not.toContain('UI pages');
+    expect(withApiOnly).toContain('HTTP status');
+
+    const withUiOnly = renderHtml(report());
+    expect(withUiOnly).not.toContain('API timings');
+    expect(withUiOnly).not.toContain('UI pages');
+  });
+
+  it('renders API run variance when samples differ', () => {
+    const html = renderHtml(report({ results: [], apiResults: [apiEntry()] }));
+
+    expect(html).toContain('Run variance');
+    expect(html).toContain('100ms');
+    expect(html).toContain('140ms');
   });
 
   it('stays self-contained and under the report budget', () => {

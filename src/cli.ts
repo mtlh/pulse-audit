@@ -2,9 +2,12 @@
 import { access, appendFile } from 'node:fs/promises';
 import { Command } from 'commander';
 import pc from 'picocolors';
+import { runApiAudit } from './api.js';
 import {
+  apiBaselineKey,
   baselineKey,
   baselinePath,
+  comparableApiBaseline,
   comparableBaseline,
   mergeBaseline,
   pruneBaseline,
@@ -17,13 +20,14 @@ import {
   defaultConfig,
   loadConfig,
   PulseConfigError,
+  resolveApiTargets,
   resolveTargets,
   targetUrl,
   writeConfig,
 } from './config.js';
 import { runDoctor, type DoctorCheck } from './doctor.js';
 import { formatValue, type ValueFormat } from './format.js';
-import { buildReport, type ReportInput } from './report.js';
+import { buildReport, type ApiReportInput, type ReportInput } from './report.js';
 import { writeHtmlReport } from './reporters/html.js';
 import { writeJsonReport } from './reporters/json.js';
 import { renderMarkdown, upsertSummary } from './reporters/summary.js';
@@ -204,13 +208,16 @@ program
   .description('Audit one or more URLs and compare against a baseline')
   .argument('[url]', 'override the URL from the config')
   .option('-c, --config <path>', 'config path', '.pulse.json')
-  .option('-r, --runs <n>', 'measured runs; one warm-up is discarded and the median is used')
+  .option(
+    '-r, --runs <n>',
+    'measured runs; UI discards one warm-up, API runs exactly n and both report the median',
+  )
   .option('--preset <preset>', 'mobile or desktop')
   .option('--baseline <path>', 'baseline file to compare against')
   .option('--out <dir>', 'report output directory')
   .option('--summary <path>', 'write a Markdown summary to this file (the pulse block is replaced)')
-  .option('--retries <n>', 'extra attempts after a failed Lighthouse run')
-  .option('--timeout <ms>', 'Lighthouse maxWaitForLoad in milliseconds')
+  .option('--retries <n>', 'extra attempts after a failed Lighthouse run or API request')
+  .option('--timeout <ms>', 'Lighthouse maxWaitForLoad and API request timeout in milliseconds')
   .option('--github-output', 'write report-path and counts to $GITHUB_OUTPUT')
   .option('--update-baseline', 'write the audit result to the baseline file')
   .option('--json', 'print the report JSON to stdout; progress and paths go to stderr')
@@ -261,9 +268,13 @@ program
       }
 
       const pages = resolveTargets(config);
+      const apiTargets = resolveApiTargets(config);
       // An explicit CLI override is a global decision: it should win over a
       // page-level preset/runs entry too.
-      if (runs !== undefined) for (const page of pages) page.runs = runs;
+      if (runs !== undefined) {
+        for (const page of pages) page.runs = runs;
+        for (const target of apiTargets) target.runs = runs;
+      }
       if (preset !== undefined) for (const page of pages) page.preset = preset;
 
       const quiet = options.quiet === true;
@@ -290,6 +301,7 @@ program
       }
 
       const inputs: ReportInput[] = [];
+      const apiInputs: ApiReportInput[] = [];
       const errors: Array<{ url: string; message: string }> = [];
 
       for (const page of pages) {
@@ -304,6 +316,7 @@ program
             runs: page.runs,
             retries: page.retries,
             timeoutMs: page.timeoutMs,
+            auth: page.auth,
           });
 
           const raw = baseline.results[baselineKey(page.preset, pageUrl)];
@@ -323,7 +336,36 @@ program
         }
       }
 
-      const report = buildReport(inputs);
+      for (const target of apiTargets) {
+        const label = `${target.method} ${target.url}`;
+        progress(`auditing API ${label} (${target.runs} run${target.runs === 1 ? '' : 's'})…`);
+
+        try {
+          const result = await runApiAudit(target);
+          const raw = baseline.apiResults?.[apiBaselineKey(target.method, target.url)];
+          const comparable = comparableApiBaseline(raw, result);
+          if (raw && !comparable) {
+            warn(
+              `Ignoring API baseline for ${label}: the measured run count changed (${raw.runs} -> ${result.runs}).`,
+            );
+          }
+
+          apiInputs.push({
+            result,
+            baseline: comparable,
+            budgets: target.budgets,
+            strict: config.strict,
+            expectStatus: target.expectStatus,
+          });
+        } catch (error) {
+          errors.push({
+            url: label,
+            message: error instanceof Error ? error.message : String(error),
+          });
+        }
+      }
+
+      const report = buildReport(inputs, apiInputs);
       const jsonPath = await writeJsonReport(report, config.report.outDir);
       const htmlPath = await writeHtmlReport(report, config.report.outDir);
 
@@ -344,6 +386,7 @@ program
             mergeBaseline(
               baseline,
               inputs.map((input) => input.result),
+              apiInputs.map((input) => input.result),
             ),
           );
           writeInfo(`${pc.dim('baseline')} ${baselineFile}`);
@@ -413,8 +456,9 @@ baselineCommand
   .action(async (options: { baseline: string }) => {
     const file = await readBaseline(options.baseline);
     const entries = Object.entries(file.results);
+    const apiEntries = Object.entries(file.apiResults ?? {});
 
-    if (entries.length === 0) {
+    if (entries.length === 0 && apiEntries.length === 0) {
       console.log(`No baseline results in ${options.baseline}.`);
       console.log('Run "pulse audit --update-baseline" to establish one.');
       return;
@@ -428,6 +472,23 @@ baselineCommand
       console.log(`  ${pad('runs', 12)}${result.runs ?? '—'}`);
       console.log(`  ${pad('LCP', 12)}${lcp}`);
       console.log(`  ${pad('Lighthouse', 12)}${result.lighthouseVersion ?? 'unknown'}`);
+      console.log('');
+    }
+
+    for (const [key, result] of apiEntries) {
+      const ttfb = typeof result.metrics?.ttfb === 'number' ? formatValue(result.metrics.ttfb, 'ms') : '—';
+      const duration =
+        typeof result.metrics?.duration === 'number' ? formatValue(result.metrics.duration, 'ms') : '—';
+      const bytes =
+        typeof result.metrics?.bytes === 'number' ? formatValue(result.metrics.bytes, 'bytes') : '—';
+      console.log(pc.bold(`${result.method ?? 'GET'} ${result.url ?? key}`));
+      console.log(`  ${pad('method', 12)}${result.method ?? 'GET'}`);
+      console.log(`  ${pad('capturedAt', 12)}${result.capturedAt ?? '—'}`);
+      console.log(`  ${pad('runs', 12)}${result.runs ?? '—'}`);
+      console.log(`  ${pad('status', 12)}${result.metrics?.status ?? '—'}`);
+      console.log(`  ${pad('TTFB', 12)}${ttfb}`);
+      console.log(`  ${pad('duration', 12)}${duration}`);
+      console.log(`  ${pad('bytes', 12)}${bytes}`);
       console.log('');
     }
   });
@@ -445,7 +506,13 @@ baselineCommand
     const baseline = await readBaseline(file);
 
     const keep = new Set(resolveTargets(config).map((page) => baselineKey(page.preset, targetUrl(page))));
-    const removed = Object.keys(baseline.results).filter((key) => !keep.has(key));
+    const keepApi = new Set(
+      resolveApiTargets(config).map((target) => apiBaselineKey(target.method, target.url)),
+    );
+    const removed = [
+      ...Object.keys(baseline.results).filter((key) => !keep.has(key)),
+      ...Object.keys(baseline.apiResults ?? {}).filter((key) => !keepApi.has(key)),
+    ];
 
     if (removed.length === 0) {
       console.log(`No stale baseline entries in ${file}.`);
@@ -453,7 +520,7 @@ baselineCommand
     }
 
     if (!options.dryRun) {
-      await writeBaseline(file, pruneBaseline(baseline, keep));
+      await writeBaseline(file, pruneBaseline(baseline, keep, keepApi));
     }
 
     console.log(

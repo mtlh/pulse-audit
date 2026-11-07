@@ -1,8 +1,8 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
-import type { AuditResult, BaselineFile, Preset } from './types.js';
+import type { ApiResult, AuditResult, BaselineFile, HttpMethod, Preset } from './types.js';
 
-export const BASELINE_VERSION = 2 as const;
+export const BASELINE_VERSION = 3 as const;
 
 export function baselinePath(outDir: string): string {
   return `${outDir}/baseline.json`;
@@ -10,6 +10,10 @@ export function baselinePath(outDir: string): string {
 
 export function baselineKey(preset: Preset, url: string): string {
   return `${preset}::${url}`;
+}
+
+export function apiBaselineKey(method: HttpMethod, url: string): string {
+  return `api::${method}::${url}`;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -30,7 +34,7 @@ function migrateV1(results: Record<string, unknown>): BaselineFile {
     migrated[baselineKey(preset, url)] = result;
   }
 
-  return { version: BASELINE_VERSION, results: migrated };
+  return { version: BASELINE_VERSION, results: migrated, apiResults: {} };
 }
 
 export async function readBaseline(path: string): Promise<BaselineFile> {
@@ -42,16 +46,26 @@ export async function readBaseline(path: string): Promise<BaselineFile> {
 
     if (parsed.version === 1) return migrateV1(parsed.results);
     if (parsed.version === 2) {
+      // v2 had no API results; keep its page entries and start the API side empty.
       return {
         version: BASELINE_VERSION,
         results: parsed.results as Record<string, AuditResult>,
+        apiResults: {},
+      };
+    }
+    if (parsed.version === 3) {
+      const apiResults = isRecord(parsed.apiResults) ? (parsed.apiResults as Record<string, ApiResult>) : {};
+      return {
+        version: BASELINE_VERSION,
+        results: parsed.results as Record<string, AuditResult>,
+        apiResults,
       };
     }
 
     throw new Error(`Unsupported baseline format in ${path}`);
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
-      return { version: BASELINE_VERSION, results: {} };
+      return { version: BASELINE_VERSION, results: {}, apiResults: {} };
     }
     throw error;
   }
@@ -59,6 +73,9 @@ export async function readBaseline(path: string): Promise<BaselineFile> {
 
 export async function writeBaseline(path: string, file: BaselineFile): Promise<void> {
   const next: BaselineFile = { version: BASELINE_VERSION, results: file.results };
+  if (file.apiResults && Object.keys(file.apiResults).length > 0) {
+    next.apiResults = file.apiResults;
+  }
   await mkdir(dirname(path), { recursive: true });
   await writeFile(path, `${JSON.stringify(next, null, 2)}\n`, 'utf8');
 }
@@ -92,19 +109,59 @@ export function comparableBaseline(
   return baseline;
 }
 
-export function mergeBaseline(file: BaselineFile, results: AuditResult[]): BaselineFile {
+/**
+ * An API baseline is comparable only when the method and measured run count
+ * match. Status and size are reported but do not participate in comparability.
+ */
+export function comparableApiBaseline(baseline: ApiResult | undefined, current: ApiResult): ApiResult | null {
+  if (!baseline) return null;
+  if (baseline.method !== current.method) return null;
+  if (baseline.runs !== current.runs) return null;
+  return baseline;
+}
+
+export function mergeBaseline(
+  file: BaselineFile,
+  results: AuditResult[],
+  apiResults: ApiResult[] = [],
+): BaselineFile {
   const next: BaselineFile = { version: BASELINE_VERSION, results: { ...file.results } };
   for (const result of results) {
     next.results[baselineKey(result.preset, result.url)] = result;
   }
+
+  const api = { ...(file.apiResults ?? {}) };
+  for (const result of apiResults) {
+    api[apiBaselineKey(result.method, result.url)] = result;
+  }
+  if (Object.keys(api).length > 0) next.apiResults = api;
+
   return next;
 }
 
-/** Return a new baseline containing only the requested keys. */
-export function pruneBaseline(file: BaselineFile, keepKeys: Set<string>): BaselineFile {
+/**
+ * Return a new baseline containing only the requested keys. When
+ * `keepApiKeys` is omitted, API entries are preserved: callers that only know
+ * about UI targets cannot accidentally drop API history.
+ */
+export function pruneBaseline(
+  file: BaselineFile,
+  keepKeys: Set<string>,
+  keepApiKeys?: Set<string>,
+): BaselineFile {
   const results: Record<string, AuditResult> = {};
   for (const [key, result] of Object.entries(file.results)) {
     if (keepKeys.has(key)) results[key] = result;
   }
-  return { version: BASELINE_VERSION, results };
+
+  const next: BaselineFile = { version: BASELINE_VERSION, results };
+  if (file.apiResults) {
+    const apiResults: Record<string, ApiResult> = {};
+    for (const [key, result] of Object.entries(file.apiResults)) {
+      if (!keepApiKeys || keepApiKeys.has(key)) apiResults[key] = result;
+    }
+    if (Object.keys(apiResults).length > 0) next.apiResults = apiResults;
+  }
+
+  return next;
 }

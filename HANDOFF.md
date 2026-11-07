@@ -19,15 +19,18 @@ v0.1.0. The package version intentionally stays at 0.1.0 until the next release.
 
 What changed:
 
-- **Baseline v2**, keyed by `preset::url`. Version 1 files are migrated automatically on read
-  and rewritten as version 2 on the next `--update-baseline`; mobile and desktop baselines now
-  coexist. `--update-baseline` is skipped when any URL fails so a partial baseline cannot be
-  saved.
+- **Baseline v3**, keyed by `preset::url` for pages and `api::METHOD::url` for APIs. Version 1
+  and 2 files are migrated automatically on read and rewritten as version 3 on the next
+  `--update-baseline`; mobile, desktop and API baselines now coexist. `--update-baseline` is
+  skipped when any target fails so a partial baseline cannot be saved.
 - **Samples and variance.** Every measured run is stored in `AuditResult.samples`; the
   terminal, Markdown and HTML reports show the run spread next to the median gate.
-- **Config:** per-URL `preset`/`runs`/`budgets` overrides, readable units (`"2.5s"`,
-  `"250kb"`, `"10%"`), `strict`, `retries` and `timeoutMs`. Inert budget rules are rejected at
-  load time.
+- **Auth + API timings.** Page targets accept bearer or Basic auth with `${ENV_VAR}`
+  substitution. A top-level `api` list measures authenticated HTTP endpoints with `fetch`
+  (TTFB, duration, status, response bytes) and reports them in separate UI/API tables.
+- **Config:** per-URL `preset`/`runs`/`auth`/`budgets` overrides, per-endpoint API settings,
+  readable units (`"2.5s"`, `"250kb"`, `"10%"`), `strict`, `retries` and `timeoutMs`. Inert
+  budget rules are rejected at load time.
 - **Metrics:** FCP, TTFB, CSS, fonts, total weight and third-party bytes/requests; a11y impact
   buckets (`maxNewByImpact`) and `ignoreRules`.
 - **Per-URL error isolation with retries.** One failed URL no longer discards the rest.
@@ -39,13 +42,13 @@ What changed:
   URLs are still reported), `1` for check failures or warnings under `--fail-on warn`, `0`
   otherwise.
 
-Breaking API changes: `runAudit(url, { preset, runs, retries, timeoutMs })` and
-`buildReport(inputs)`. The README has the migration summary.
+Breaking API changes: `runAudit(url, { preset, runs, retries, timeoutMs, auth })` and
+`buildReport(inputs, apiInputs)`. The README has the migration summary.
 
-Verified with `npm run typecheck`, `npm test` (132 passed, 7 Chrome/package flows skipped),
-`npm run build` and `npm run test:e2e` (15 flow tests, including the packed install). The report
-JSON schema is now version 2; the HTML footer shows the package version separately. WSL support
-adds Linux Chrome detection (including snap/Flatpak fallbacks) and WSL-specific doctor guidance.
+Verified with `npm run typecheck`, `npm test`, `npm run build` and the authenticated API flow in
+`npm run test:e2e`. The report JSON schema is now version 3; the HTML footer shows the package
+version separately. WSL support adds Linux Chrome detection (including snap/Flatpak fallbacks)
+and WSL-specific doctor guidance.
 
 ---
 
@@ -92,9 +95,9 @@ a11y gating, and a report that diagnoses instead of scoring.
 | Lighthouse runner                   | **Verified (samples + warm-up + retries)** | Lighthouse 12.8.2; median of N, per-run samples, retry and per-URL isolation      |
 | LHR extraction                      | **Verified**                               | LCP element, expanded weight metrics and axe nodes checked                        |
 | Compare / budget logic              | **Verified (live + flows)**                | strict mode, impact buckets and `ignoreRules` unit tested                         |
-| Baseline read/write + comparability | **Verified (v2 + migration)**              | keyed `preset::url`; v1 migrates on read; major-version comparability             |
+| Baseline read/write + comparability | **Verified (v3 + migration)**              | pages keyed `preset::url`, API keyed `api::METHOD::url`; v1/v2 migrate on read    |
 | Terminal reporter                   | Done                                       | ANSI colour, run spread, ignored-rule note                                        |
-| JSON reporter                       | Done                                       | report schema v2                                                                  |
+| JSON reporter                       | Done                                       | report schema v3 with `apiResults`                                                |
 | HTML reporter                       | **Verified**                               | self-contained, no JS; variance, third-party and cross-URL sections               |
 | Markdown summary                    | Done                                       | for `$GITHUB_STEP_SUMMARY`; replaces its marker block                             |
 | GitHub Action                       | **Dropped**                                | owner chose npx/CLI as the delivery path                                          |
@@ -123,10 +126,12 @@ pulse-audit/
 │   └── roadmap.md                 v0.2/v0.3/v1.0 scope
 ├── src/
 │   ├── cli.ts                     init (incl. --from) + audit/baseline/doctor
-│   ├── config.ts                  schema, defaults, measured budgets, per-URL merge
+│   ├── config.ts                  schema, defaults, measured budgets, per-URL/API merge
+│   ├── auth.ts                    ${ENV_VAR} expansion, bearer/basic headers
 │   ├── chrome.ts                  Chrome/WSL detection and fallbacks
 │   ├── doctor.ts                  environment and project checks
 │   ├── runner.ts                  chrome-launcher + lighthouse, median pick
+│   ├── api.ts                     authenticated fetch timing, median pick
 │   ├── extract.ts                 LHR -> AuditResult
 │   ├── compare.ts                 pure budget evaluation
 │   ├── report.ts                  ReportEntry assembly
@@ -242,7 +247,7 @@ If Lighthouse fails, check in this order:
 1. **Strict mode.** Implemented as `"strict": true` at the config root, default false.
 2. **Multi-URL PR runs.** Current default audits every URL sequentially. Prefer one job per
    URL at scale.
-3. **Desktop preset.** Implemented in the runner and keyed separately in baseline v2.
+3. **Desktop preset.** Implemented in the runner and keyed separately in baseline v3.
 4. **History storage.** v0 uses a workflow artifact. A trend chart needs durable storage
    (`gh-pages` or a small JSON in a `pulse-history` branch). Do not add a database.
 5. **PR comment.** The step summary is enough for v0. Add Octokit + a hidden marker when
@@ -377,7 +382,8 @@ from 'chrome-launcher'`.
 
 - Store `preset`, `runs`, `lighthouseVersion` in every result.
 - `comparableBaseline()` returns null on mismatch. Never compare across Lighthouse majors.
-- Baseline file: `{ version: 1, results: { [url]: AuditResult } }`.
+- Baseline file: `{ version: 3, results: { [preset::url]: AuditResult }, apiResults: { [api::METHOD::url]: ApiResult } }`.
+  v1 and v2 files migrate on read. UI and API baselines are keyed separately.
 - Do not commit `.pulse/`; it is gitignored.
 
 ### Distribution

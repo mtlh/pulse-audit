@@ -1,9 +1,11 @@
 import { mkdir, readFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
+import { resolveRequestHeaders } from './auth.js';
+import { apiBaselineKey, baselineKey, baselinePath, lighthouseMajor, readBaseline } from './baseline.js';
 import { findChromeBinary } from './chrome.js';
-import { baselineKey, baselinePath, lighthouseMajor, readBaseline } from './baseline.js';
-import { loadConfig, resolveTargets, targetUrl } from './config.js';
-import type { BaselineFile, PulseConfig } from './types.js';
+import { expectedStatus } from './compare.js';
+import { loadConfig, resolveApiTargets, resolveTargets, targetUrl } from './config.js';
+import type { BaselineFile, PulseConfig, ResolvedApiTarget } from './types.js';
 
 export type DoctorStatus = 'pass' | 'warn' | 'fail';
 
@@ -83,6 +85,32 @@ async function checkUrl(url: string): Promise<{ ok: boolean; detail: string }> {
   }
 }
 
+/**
+ * Doctor only exercises safe API targets. A POST/PUT/PATCH/DELETE request could
+ * create data, so those are reported as config-only checks rather than repeated.
+ */
+async function checkApiTarget(target: ResolvedApiTarget): Promise<{ ok: boolean; detail: string }> {
+  if (target.method !== 'GET' && target.method !== 'HEAD') {
+    return { ok: true, detail: `${target.method} is configured; doctor does not execute unsafe methods` };
+  }
+
+  try {
+    const headers = resolveRequestHeaders(target.auth, target.headers);
+    const response = await fetch(target.url, {
+      method: target.method === 'HEAD' ? 'HEAD' : 'GET',
+      headers,
+      redirect: 'follow',
+      signal: AbortSignal.timeout(Math.min(target.timeoutMs, 10_000)),
+    });
+    // The status is all doctor needs; canceling the body keeps the check cheap.
+    await response.body?.cancel();
+    const detail = `${response.status}${response.statusText ? ` ${response.statusText}` : ''}`;
+    return { ok: expectedStatus(response.status, target.expectStatus), detail };
+  } catch (error) {
+    return { ok: false, detail: message(error) };
+  }
+}
+
 async function inspectBaseline(path: string): Promise<{ check: DoctorCheck; baseline?: BaselineFile }> {
   let rawText: string;
   try {
@@ -110,13 +138,16 @@ async function inspectBaseline(path: string): Promise<{ check: DoctorCheck; base
 
   try {
     const baseline = await readBaseline(path);
-    const count = Object.keys(baseline.results).length;
+    const uiCount = Object.keys(baseline.results).length;
+    const apiCount = Object.keys(baseline.apiResults ?? {}).length;
+    const count = uiCount + apiCount;
     const version = rawVersion === 1 ? 'version 1 (migrated in memory)' : `version ${String(rawVersion)}`;
+    const breakdown = apiCount > 0 ? ` (${uiCount} URL, ${apiCount} API)` : ` (${uiCount} URL)`;
     return {
       check: {
         name: 'baseline',
         status: 'pass',
-        detail: `${path}: ${version}, ${count} entr${count === 1 ? 'y' : 'ies'}`,
+        detail: `${path}: ${version}, ${count} entr${count === 1 ? 'y' : 'ies'}${breakdown}`,
       },
       baseline,
     };
@@ -171,6 +202,27 @@ function checkTargets(
   });
 }
 
+function checkApiTargets(config: PulseConfig, baseline: BaselineFile): DoctorCheck[] {
+  return resolveApiTargets(config).map((target) => {
+    const key = apiBaselineKey(target.method, target.url);
+    const name = `baseline api ${target.method} ${target.url}`;
+    const entry = baseline.apiResults?.[key];
+
+    if (!entry) {
+      return { name, status: 'warn', detail: `no baseline entry for ${key}` };
+    }
+    if (entry.runs !== target.runs) {
+      return {
+        name,
+        status: 'fail',
+        detail: `entry has ${entry.runs} run${entry.runs === 1 ? '' : 's'}; config expects ${target.runs}`,
+      };
+    }
+
+    return { name, status: 'pass', detail: key };
+  });
+}
+
 export async function runDoctor(options: DoctorOptions = {}): Promise<DoctorResult> {
   const checks: DoctorCheck[] = [checkNode()];
 
@@ -184,10 +236,13 @@ export async function runDoctor(options: DoctorOptions = {}): Promise<DoctorResu
   let config: PulseConfig | undefined;
   try {
     config = await loadConfig(options.configPath ?? '.pulse.json');
+    const apiCount = config.api?.length ?? 0;
     checks.push({
       name: 'config',
       status: 'pass',
-      detail: `${options.configPath ?? '.pulse.json'} (${config.urls.length} URL${config.urls.length === 1 ? '' : 's'})`,
+      detail: `${options.configPath ?? '.pulse.json'} (${config.urls.length} URL${
+        config.urls.length === 1 ? '' : 's'
+      }${apiCount > 0 ? `, ${apiCount} API endpoint${apiCount === 1 ? '' : 's'}` : ''})`,
     });
   } catch (error) {
     checks.push({ name: 'config', status: 'fail', detail: message(error) });
@@ -210,6 +265,7 @@ export async function runDoctor(options: DoctorOptions = {}): Promise<DoctorResu
 
   if (config && inspected.baseline) {
     checks.push(...checkTargets(config, inspected.baseline, installedLighthouseMajor()));
+    checks.push(...checkApiTargets(config, inspected.baseline));
   }
 
   if (!options.skipNetwork && config) {
@@ -219,6 +275,15 @@ export async function runDoctor(options: DoctorOptions = {}): Promise<DoctorResu
       const result = await reachable(url);
       checks.push({
         name: `url ${url}`,
+        status: result.ok ? 'pass' : 'fail',
+        detail: result.detail,
+      });
+    }
+
+    for (const target of resolveApiTargets(config)) {
+      const result = await checkApiTarget(target);
+      checks.push({
+        name: `api ${target.method} ${target.url}`,
         status: result.ok ? 'pass' : 'fail',
         detail: result.detail,
       });

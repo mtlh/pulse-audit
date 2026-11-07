@@ -15,13 +15,36 @@ import type { AddressInfo } from 'node:net';
  */
 export interface FixtureSite {
   url: string;
-  /** Toggle an extra a11y violation between audit runs. */
-  state: { extraViolation: boolean };
+  /** Toggle an extra a11y violation or require auth between audit runs. */
+  state: { extraViolation: boolean; requireAuth: boolean };
   close(): Promise<void>;
 }
 
+export const fixtureAuth = {
+  token: 'pulse-test-token',
+  username: 'pulse',
+  password: 'secret',
+} as const;
+
 const HERO_BYTES = 160 * 1024;
 const SCRIPT_BYTES = 220 * 1024;
+
+function isAuthorized(request: { headers: { authorization?: string } }): boolean {
+  const header = request.headers.authorization;
+  if (header === `Bearer ${fixtureAuth.token}`) return true;
+  const basic = `Basic ${Buffer.from(`${fixtureAuth.username}:${fixtureAuth.password}`).toString('base64')}`;
+  return header === basic;
+}
+
+function json(response: import('node:http').ServerResponse, status: number, body: unknown): void {
+  const payload = JSON.stringify(body);
+  response.writeHead(status, {
+    'content-type': 'application/json; charset=utf-8',
+    'content-length': Buffer.byteLength(payload),
+    'cache-control': 'no-store',
+  });
+  response.end(payload);
+}
 
 function heroSvg(): string {
   return `<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="800" viewBox="0 0 1200 800">
@@ -86,10 +109,11 @@ function html(extraViolation: boolean): string {
 }
 
 export async function startFixture(): Promise<FixtureSite> {
-  const state = { extraViolation: false };
+  const state = { extraViolation: false, requireAuth: false };
   const hero = heroSvg();
   const pixel = pixelSvg();
   const script = heavyScript();
+  const apiPadding = 'api-padding '.repeat(512);
 
   const routes: Record<string, { type: string; body: string }> = {
     '/heavy.js': { type: 'text/javascript; charset=utf-8', body: script },
@@ -99,6 +123,49 @@ export async function startFixture(): Promise<FixtureSite> {
 
   const server: Server = createServer((request, response) => {
     const pathname = new URL(request.url ?? '/', 'http://localhost').pathname;
+
+    if (pathname === '/api/private') {
+      if (!isAuthorized(request)) {
+        json(response, 401, { error: 'unauthorized' });
+        return;
+      }
+      json(response, 200, { ok: true, padding: apiPadding });
+      return;
+    }
+
+    if (pathname === '/api/echo') {
+      let body = '';
+      request.setEncoding('utf8');
+      request.on('data', (chunk: string) => {
+        body += chunk;
+      });
+      request.on('end', () => {
+        json(response, 200, {
+          method: request.method,
+          body,
+          authenticated: isAuthorized(request),
+        });
+      });
+      return;
+    }
+
+    if (pathname === '/api/bytes') {
+      const body = 'x'.repeat(8192);
+      response.writeHead(200, {
+        'content-type': 'text/plain; charset=utf-8',
+        'content-length': Buffer.byteLength(body),
+        'cache-control': 'no-store',
+      });
+      response.end(body);
+      return;
+    }
+
+    if (state.requireAuth && !isAuthorized(request)) {
+      response.writeHead(401, { 'content-type': 'text/plain; charset=utf-8', 'cache-control': 'no-store' });
+      response.end('unauthorized');
+      return;
+    }
+
     const route =
       pathname === '/' || pathname === '/index.html'
         ? { type: 'text/html; charset=utf-8', body: html(state.extraViolation) }

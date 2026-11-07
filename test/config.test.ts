@@ -6,6 +6,7 @@ import {
   budgetsFromResult,
   configSchema,
   defaultConfig,
+  resolveApiTargets,
   resolveTargets,
   writeConfig,
 } from '../src/config.js';
@@ -306,5 +307,158 @@ describe('writeConfig', () => {
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
+  });
+
+  it('omits empty API settings so a UI-only config stays unchanged', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'pulse-config-'));
+
+    try {
+      const path = join(dir, '.pulse.json');
+      await writeConfig(path, defaultConfig(['https://example.com/']));
+
+      const raw = JSON.parse(await readFile(path, 'utf8')) as Record<string, unknown>;
+      expect(raw.api).toBeUndefined();
+      expect(raw.apiBudgets).toBeUndefined();
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('writes API auth placeholders verbatim', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'pulse-config-'));
+
+    try {
+      const path = join(dir, '.pulse.json');
+      await writeConfig(path, {
+        ...defaultConfig(['https://example.com/']),
+        api: [
+          {
+            url: 'https://api.example.com/items',
+            method: 'POST',
+            body: '{"a":1}',
+            auth: { type: 'bearer', token: '${API_TOKEN}' },
+            budgets: { duration: { max: 500 } },
+          },
+        ],
+      });
+
+      const raw = JSON.parse(await readFile(path, 'utf8')) as {
+        api: Array<Record<string, unknown>>;
+      };
+      expect(raw.api[0].auth).toEqual({ type: 'bearer', token: '${API_TOKEN}' });
+      expect(raw.api[0].budgets).toEqual({ duration: { max: 500 } });
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('API config', () => {
+  it('accepts auth, methods, bodies and readable API units', () => {
+    const parsed = configSchema.parse({
+      urls: ['https://example.com/'],
+      api: [
+        {
+          url: 'https://api.example.com/items',
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: '{"hello":"world"}',
+          auth: { type: 'bearer', token: '${API_TOKEN}' },
+          runs: 2,
+          timeoutMs: 5000,
+          expectStatus: [200, 201],
+          budgets: { ttfb: { max: '300ms' }, duration: { max: '1.5s' }, bytes: { max: '10kb' } },
+        },
+      ],
+      apiBudgets: { duration: { regression: '20%', severity: 'warn' } },
+    });
+
+    expect(parsed.api).toHaveLength(1);
+    expect(parsed.api[0]?.budgets?.ttfb?.max).toBe(300);
+    expect(parsed.api[0]?.budgets?.duration?.max).toBe(1500);
+    expect(parsed.api[0]?.budgets?.bytes?.max).toBe(10 * 1024);
+    expect(parsed.apiBudgets.duration).toEqual({ regression: 20, severity: 'warn' });
+  });
+
+  it('allows an API-only config and rejects a config with neither kind', () => {
+    expect(configSchema.safeParse({ api: [{ url: 'https://api.example.com/items' }] }).success).toBe(true);
+    expect(configSchema.safeParse({ urls: [] }).success).toBe(false);
+  });
+
+  it('applies the default API regression budgets when none are supplied', () => {
+    const parsed = configSchema.parse({
+      urls: ['https://example.com/'],
+      api: [{ url: 'https://api.example.com/items' }],
+    });
+
+    expect(parsed.apiBudgets).toEqual({
+      ttfb: { regression: 20, severity: 'warn' },
+      duration: { regression: 20, severity: 'warn' },
+    });
+  });
+
+  it('rejects a GET body and unknown auth fields', () => {
+    expect(
+      configSchema.safeParse({
+        urls: ['https://example.com/'],
+        api: [{ url: 'https://api.example.com/items', body: '{}' }],
+      }).success,
+    ).toBe(false);
+
+    expect(
+      configSchema.safeParse({
+        urls: ['https://example.com/'],
+        api: [
+          {
+            url: 'https://api.example.com/items',
+            auth: { type: 'bearer', token: 'x', username: 'y' },
+          },
+        ],
+      }).success,
+    ).toBe(false);
+  });
+
+  it('resolves global runs, timeout, retries and API budgets per target', () => {
+    const config = configSchema.parse({
+      runs: 4,
+      retries: 2,
+      timeoutMs: 30_000,
+      urls: ['https://example.com/'],
+      apiBudgets: {
+        ttfb: { max: 500, regression: 20, severity: 'warn' },
+        duration: { regression: 10 },
+      },
+      api: [
+        {
+          url: 'https://api.example.com/items',
+          method: 'POST',
+          budgets: { ttfb: { max: 700 }, bytes: { max: '8kb' } },
+        },
+        { url: 'https://api.example.com/health', runs: 1 },
+      ],
+    });
+
+    const [items, health] = resolveApiTargets(config);
+
+    expect(items?.method).toBe('POST');
+    expect(items?.runs).toBe(4);
+    expect(items?.retries).toBe(2);
+    expect(items?.timeoutMs).toBe(30_000);
+    expect(items?.budgets.ttfb).toEqual({ max: 700, regression: 20, severity: 'warn' });
+    expect(items?.budgets.duration).toEqual({ regression: 10 });
+    expect(items?.budgets.bytes?.max).toBe(8 * 1024);
+
+    expect(health?.method).toBe('GET');
+    expect(health?.runs).toBe(1);
+  });
+
+  it('applies a page auth block to the resolved page without changing the URL surface', () => {
+    const config = configSchema.parse({
+      urls: [{ url: 'https://example.com/app', auth: { type: 'basic', username: 'u', password: 'p' } }],
+    });
+
+    const [page] = resolveTargets(config);
+    expect(page?.urls).toEqual(['https://example.com/app']);
+    expect(page?.auth).toEqual({ type: 'basic', username: 'u', password: 'p' });
   });
 });

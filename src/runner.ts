@@ -1,9 +1,18 @@
 import * as chromeLauncher from 'chrome-launcher';
 import lighthouse from 'lighthouse';
+import { resolveAuthHeaders } from './auth.js';
 import { findChromeBinary } from './chrome.js';
 import { countViolationNodes, violationKey } from './compare.js';
 import { extractResult, worstImpact } from './extract.js';
-import type { A11yImpact, A11yNode, A11yViolation, AuditMetrics, AuditResult, Preset } from './types.js';
+import type {
+  A11yImpact,
+  A11yNode,
+  A11yViolation,
+  AuditMetrics,
+  AuditResult,
+  AuthConfig,
+  Preset,
+} from './types.js';
 import { median } from './util/median.js';
 import { AUDIT_METRIC_KEYS } from './util/variance.js';
 
@@ -36,6 +45,8 @@ export interface AuditOptions {
   runs: number;
   retries?: number;
   timeoutMs?: number;
+  /** Bearer or Basic auth, applied as an extra request header to every page request. */
+  auth?: AuthConfig;
 }
 
 function richerText(current: string | undefined, next: string | undefined): string | undefined {
@@ -146,6 +157,7 @@ async function measureOnce(
   chromePort: number,
   options: AuditOptions,
   runNumber: number,
+  extraHeaders: Record<string, string> | undefined,
 ): Promise<AuditResult> {
   const retries = Math.max(0, options.retries ?? 1);
   let lastError: unknown;
@@ -162,6 +174,9 @@ async function measureOnce(
         throttling: options.preset === 'mobile' ? MOBILE_THROTTLING : DESKTOP_THROTTLING,
         throttlingMethod: 'simulate',
         maxWaitForLoad: options.timeoutMs ?? 120_000,
+        // Lighthouse applies these to every request in the audit, so the token
+        // must be scoped to the staging environment rather than production.
+        ...(extraHeaders ? { extraHeaders } : {}),
         // Screenshots are expensive to capture and encode, and Pulse never
         // reads them. Dropping them shortens every run without changing the
         // metrics or axe results that are reported.
@@ -187,6 +202,9 @@ export async function runAudit(url: string, options: AuditOptions): Promise<Audi
   const binary = findChromeBinary();
   if (!binary.path) throw new Error(binary.detail);
 
+  // Resolve once so a missing secret fails before Chrome is launched.
+  const extraHeaders = options.auth ? resolveAuthHeaders(options.auth) : undefined;
+
   const chrome = await chromeLauncher
     .launch({
       chromePath: binary.path,
@@ -204,7 +222,7 @@ export async function runAudit(url: string, options: AuditOptions): Promise<Audi
     const results: AuditResult[] = [];
 
     for (let run = 0; run < options.runs + WARMUP_RUNS; run += 1) {
-      const result = await measureOnce(url, chrome.port, options, run + 1);
+      const result = await measureOnce(url, chrome.port, options, run + 1, extraHeaders);
       if (run < WARMUP_RUNS) continue;
       results.push(result);
     }

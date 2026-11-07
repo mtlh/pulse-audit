@@ -86,7 +86,7 @@ const audit = report.results[0].audit;
 const checks = report.results[0].checks;
 const deltas = checks.filter((check) => check.delta !== undefined);
 
-// 4. A page that regresses must fail the gate. Baseline v2 is keyed by preset::url.
+// 4. A page that regresses must fail the gate. Baseline v3 is keyed by preset::url.
 const regressed = JSON.parse(await readFile(path.join(work, '.pulse/baseline.json'), 'utf8'));
 const baselineEntry = regressed.results[`mobile::${url}`];
 assert(baselineEntry, 'baseline v2 entry missing for mobile::url');

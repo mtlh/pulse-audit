@@ -125,6 +125,7 @@ export function useFixture(): FixtureFlow {
 
   afterEach(async () => {
     site.state.extraViolation = false;
+    site.state.requireAuth = false;
     await Promise.all(workspaces.splice(0).map(removeWorkspace));
   });
 

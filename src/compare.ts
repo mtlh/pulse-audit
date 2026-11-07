@@ -3,8 +3,12 @@ import type {
   A11yImpact,
   A11yNode,
   A11yViolation,
+  ApiBudgetSet,
+  ApiMetricKey,
+  ApiResult,
   AuditMetrics,
   AuditResult,
+  BudgetRule,
   Check,
   PulseConfig,
   Severity,
@@ -206,17 +210,19 @@ export function filterIgnoredViolations(audit: AuditResult, ignoreRules?: string
   };
 }
 
-function evaluateMetric(
-  metric: MetricSpec,
-  current: AuditResult,
-  baseline: AuditResult | null,
-  config: PulseConfig,
-): Check | null {
-  const rule = config.budgets[metric.key];
-  if (!rule || (rule.max === undefined && rule.regression === undefined)) return null;
+interface BudgetEvaluation {
+  metric: string;
+  label: string;
+  value: number;
+  baselineValue: number | undefined;
+  rule: BudgetRule;
+  format: ValueFormat;
+  defaultSeverity: Severity;
+  strict: boolean;
+}
 
-  const value = current.metrics[metric.key];
-  const baselineValue = baseline?.metrics?.[metric.key];
+function evaluateBudget(input: BudgetEvaluation): Check {
+  const { metric, label, value, baselineValue, rule, format, defaultSeverity, strict } = input;
   const delta = baselineValue === undefined ? undefined : value - baselineValue;
   const deltaPct =
     baselineValue !== undefined && baselineValue > 0 && delta !== undefined
@@ -227,10 +233,10 @@ function evaluateMetric(
   const regressionEvaluable = rule.regression !== undefined && deltaPct !== undefined;
   const regressionBreach =
     rule.regression !== undefined && deltaPct !== undefined && deltaPct > rule.regression;
-  const severity = rule.severity ?? metric.defaultSeverity;
+  const severity = rule.severity ?? defaultSeverity;
   // In strict mode an absolute budget is a hard ceiling: being better than the
   // baseline does not excuse being over it. Warnings stay warnings.
-  const strictAbsoluteBreach = config.strict === true && absoluteBreach && severity === 'error';
+  const strictAbsoluteBreach = strict && absoluteBreach && severity === 'error';
   // The ratchet only applies when the baseline actually recorded this metric and
   // the change can be expressed as a percentage. A v1 baseline (or a zero
   // baseline value) has no usable comparison, so it must behave like no baseline
@@ -259,31 +265,52 @@ function evaluateMetric(
       // the PR, but the report still makes the overshoot visible. Warnings stay
       // warnings so noisy metrics remain visible without failing the build.
       status = 'pass';
-      reason = `over max ${formatValue(rule.max!, metric.format)} but not a regression`;
+      reason = `over max ${formatValue(rule.max!, format)} but not a regression`;
     } else {
       status = severity === 'warn' ? 'warn' : 'fail';
       const causes: string[] = [];
-      if (absoluteBreach) causes.push(`over max ${formatValue(rule.max!, metric.format)}`);
+      if (absoluteBreach) causes.push(`over max ${formatValue(rule.max!, format)}`);
       if (regressionBreach) causes.push(`regressed ${formatPercent(deltaPct)} vs baseline`);
       reason = causes.join(' and ');
     }
   }
 
   return {
-    metric: metric.key,
-    label: metric.label,
+    metric,
+    label,
     value,
-    formatted: formatValue(value, metric.format),
-    format: metric.format,
+    formatted: formatValue(value, format),
+    format,
     baseline: baselineValue,
-    baselineFormatted: baselineValue === undefined ? undefined : formatValue(baselineValue, metric.format),
+    baselineFormatted: baselineValue === undefined ? undefined : formatValue(baselineValue, format),
     max: rule.max,
     delta,
     deltaPct,
     status,
     severity,
-    reason: `${reason}${delta !== undefined ? ` (${formatDelta(delta, metric.format)})` : ''}`,
+    reason: `${reason}${delta !== undefined ? ` (${formatDelta(delta, format)})` : ''}`,
   };
+}
+
+function evaluateMetric(
+  metric: MetricSpec,
+  current: AuditResult,
+  baseline: AuditResult | null,
+  config: PulseConfig,
+): Check | null {
+  const rule = config.budgets[metric.key];
+  if (!rule || (rule.max === undefined && rule.regression === undefined)) return null;
+
+  return evaluateBudget({
+    metric: metric.key,
+    label: metric.label,
+    value: current.metrics[metric.key],
+    baselineValue: baseline?.metrics?.[metric.key],
+    rule,
+    format: metric.format,
+    defaultSeverity: metric.defaultSeverity,
+    strict: config.strict === true,
+  });
 }
 
 function evaluateA11y(current: AuditResult, baseline: AuditResult | null, config: PulseConfig): Check[] {
@@ -374,4 +401,85 @@ export function compareResult(
   ).filter((check): check is Check => check !== null);
 
   return [...metricChecks, ...evaluateA11y(filteredCurrent, filteredBaseline, config)];
+}
+
+const API_METRIC_SPECS: Array<{
+  key: ApiMetricKey;
+  label: string;
+  format: ValueFormat;
+  defaultSeverity: Severity;
+}> = [
+  { key: 'ttfb', label: 'TTFB', format: 'ms', defaultSeverity: 'error' },
+  { key: 'duration', label: 'Duration', format: 'ms', defaultSeverity: 'error' },
+  { key: 'bytes', label: 'Response size', format: 'bytes', defaultSeverity: 'error' },
+];
+
+export interface ApiCompareOptions {
+  budgets: ApiBudgetSet;
+  strict?: boolean;
+  /** Exact status code or codes that count as success. Defaults to 2xx–3xx. */
+  expectStatus?: number | number[];
+}
+
+export function expectedStatus(status: number, expectStatus?: number | number[]): boolean {
+  if (expectStatus === undefined) return status >= 200 && status < 400;
+  const allowed = Array.isArray(expectStatus) ? expectStatus : [expectStatus];
+  return allowed.includes(status);
+}
+
+function evaluateApiStatus(
+  current: ApiResult,
+  baseline: ApiResult | null,
+  expectStatus: number | number[] | undefined,
+): Check {
+  const status = current.metrics.status;
+  const ok = expectedStatus(status, expectStatus);
+  const explicit = expectStatus !== undefined;
+  const expectedText = explicit
+    ? Array.isArray(expectStatus)
+      ? expectStatus.join(', ')
+      : String(expectStatus)
+    : '2xx–3xx';
+
+  return {
+    metric: 'status',
+    label: 'HTTP status',
+    value: status,
+    formatted: String(status),
+    format: 'count',
+    baseline: baseline?.metrics.status,
+    baselineFormatted: baseline ? String(baseline.metrics.status) : undefined,
+    status: ok ? 'pass' : explicit ? 'fail' : 'warn',
+    severity: explicit ? 'error' : 'warn',
+    reason: ok ? 'within expected status' : `expected ${expectedText}, got ${status}`,
+  };
+}
+
+export function compareApiResult(
+  current: ApiResult,
+  baseline: ApiResult | null,
+  options: ApiCompareOptions,
+): Check[] {
+  const checks: Check[] = [];
+
+  for (const metric of API_METRIC_SPECS) {
+    const rule = options.budgets[metric.key];
+    if (!rule || (rule.max === undefined && rule.regression === undefined)) continue;
+
+    checks.push(
+      evaluateBudget({
+        metric: metric.key,
+        label: metric.label,
+        value: current.metrics[metric.key],
+        baselineValue: baseline?.metrics?.[metric.key],
+        rule,
+        format: metric.format,
+        defaultSeverity: metric.defaultSeverity,
+        strict: options.strict === true,
+      }),
+    );
+  }
+
+  checks.push(evaluateApiStatus(current, baseline, options.expectStatus));
+  return checks;
 }

@@ -95,7 +95,8 @@ fine; the decision layer needs to get harder to fool.
 Goal: no lost baselines, no flaky failures, no invisible noise. This release was mostly
 correctness work; it made the existing promise true before widening scope.
 
-1. **[x] Baseline v2 keyed by `preset::url`** with a v1 migration path.
+1. **[x] Baseline v3 keyed by `preset::url`** (plus `api::METHOD::url` for APIs) with a v1/v2
+   migration path.
    `pulse baseline show` and `pulse baseline prune` ship. An incompatible run cannot overwrite
    a comparable baseline; `--update-baseline` is skipped when any URL fails.
 2. **[x] Samples and variance.** Every measured run is stored in `AuditResult.samples`; the
@@ -133,8 +134,10 @@ failure land in the PR.
 2. **[x] A11y impact gating.** Per-node impact and `maxNewByImpact` buckets shipped in
    this tree, and the violation key includes `failureSummary` with a v1-baseline fallback.
    A rule allowlist (`ignoreRules`) shipped; per-rule expiry remains.
-3. **[ ] Reachability:** `auth.headers` (with `${ENV_VAR}` substitution), `auth.cookies`, and
-   a `lighthouse` block for `configPath`, flags and category opt-in. Secrets stay in CI env.
+3. **[~] Reachability:** bearer/Basic page auth with `${ENV_VAR}` substitution and an `api`
+   list for authenticated timing checks shipped in this tree. `auth.cookies` and a
+   `lighthouse` block for `configPath`, flags and category opt-in remain. Secrets stay in CI
+   env.
 4. **[ ] CI surfaces:** opt-in `--pr-comment` (hidden marker, update in place, GitHub REST via
    `fetch`, no Octokit dependency), `--sarif <path>` for accessibility, and GitHub
    `::error`/`::warning` annotations for failed checks.
@@ -147,8 +150,9 @@ failure land in the PR.
 
 Acceptance:
 
-- [ ] An authenticated staging page can be audited with headers from env, with secrets absent
-      from the report.
+- [x] An authenticated staging page can be audited with a token or Basic credentials from
+      env, with secrets absent from the report, and API endpoints get their own timing table
+      (this tree). Additional custom headers/cookies remain.
 - [ ] A PR comment updates in place across pushes and links the HTML artifact.
 - [x] A rule allowlist suppresses only the named rule and the suppression is visible in the
       report (this tree).

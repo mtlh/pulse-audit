@@ -71,6 +71,75 @@ restating the rest.
 Baselines are keyed by `preset::url`, so the same URL can have independent mobile and desktop
 baselines without one overwriting the other.
 
+## Authenticated pages
+
+A page target can carry an `auth` block. Bearer tokens and Basic credentials are resolved from
+the environment at run time and applied to every request in the Lighthouse run:
+
+```json
+{
+  "urls": [
+    {
+      "url": "https://staging.example.com/app",
+      "auth": { "type": "bearer", "token": "${PULSE_TOKEN}" }
+    },
+    {
+      "url": "https://staging.example.com/admin",
+      "auth": { "type": "basic", "username": "${PULSE_USER}", "password": "${PULSE_PASS}" }
+    }
+  ]
+}
+```
+
+A missing or empty environment variable fails before Chrome launches, and the secret is never
+written to the report or baseline. Because Lighthouse applies the header to every request in
+the run, use a token scoped to the staging environment rather than production.
+
+## API endpoints and budgets
+
+`api` entries are measured with a direct HTTP request instead of Lighthouse. They are reported
+in a separate **API timings** table and store their own baseline keyed by method and URL. A
+config may set `"urls": []` to run API checks only; at least one page URL or API endpoint is
+required.
+
+```json
+{
+  "api": [
+    {
+      "url": "https://api.example.com/v1/items",
+      "method": "GET",
+      "auth": { "type": "bearer", "token": "${PULSE_TOKEN}" },
+      "runs": 3,
+      "timeoutMs": 5000,
+      "expectStatus": [200],
+      "budgets": {
+        "ttfb": { "max": "300ms", "regression": 20 },
+        "duration": { "max": "800ms", "regression": 20 },
+        "bytes": { "regression": 25, "severity": "warn" }
+      }
+    }
+  ],
+  "apiBudgets": {
+    "ttfb": { "regression": 20, "severity": "warn" },
+    "duration": { "regression": 20, "severity": "warn" }
+  }
+}
+```
+
+| Key        | Measures                              | Default in `apiBudgets` |
+| ---------- | ------------------------------------- | ----------------------- |
+| `ttfb`     | Time until response headers, ms       | regression 20%, warn    |
+| `duration` | Time until the body has been read, ms | regression 20%, warn    |
+| `bytes`    | Response body size                    | not gated               |
+
+Per-endpoint budgets deep-merge over `apiBudgets`. Unlike pages, API runs are **not warmed up**:
+`runs` requests are executed, so POST/PUT/PATCH/DELETE targets repeat their side effect. Use
+`runs: 1` for unsafe methods when that matters. An API baseline is ignored when the measured
+run count changes.
+
+HTTP status is always reported. By default 2xx–3xx passes; anything else warns. Set
+`expectStatus` to one code or a list of codes to make a mismatch fail instead.
+
 ## Why both `max` and `regression`
 
 A pure absolute budget fails on a permanently slow page even when a PR improves it. A pure

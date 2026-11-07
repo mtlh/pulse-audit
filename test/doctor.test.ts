@@ -153,6 +153,71 @@ describe('doctor', () => {
     expect(result.ok).toBe(false);
   });
 
+  it('checks an API baseline by method and run count', async () => {
+    const dir = await workspace();
+    const apiUrl = 'https://api.example.com/items';
+    const configPath = await writeConfig(dir, {
+      api: [{ url: apiUrl, runs: 2 }],
+    });
+    const baselinePath = path.join(dir, '.pulse/baseline.json');
+    await mkdir(path.dirname(baselinePath), { recursive: true });
+    await writeFile(
+      baselinePath,
+      JSON.stringify({
+        version: 3,
+        results: {},
+        apiResults: {
+          [`api::GET::${apiUrl}`]: {
+            url: apiUrl,
+            method: 'GET',
+            runs: 2,
+            capturedAt: '2026-11-02T00:00:00.000Z',
+            metrics: { ttfb: 100, duration: 200, bytes: 1024, status: 200 },
+          },
+        },
+      }),
+      'utf8',
+    );
+
+    const matched = await runDoctor({ configPath, baselinePath, skipNetwork: true });
+    const pass = matched.checks.find((check) => check.name === `baseline api GET ${apiUrl}`);
+    expect(pass?.status).toBe('pass');
+    expect(matched.checks.find((check) => check.name === 'baseline')?.detail).toContain('1 API');
+  });
+
+  it('fails an API baseline with a different run count', async () => {
+    const dir = await workspace();
+    const apiUrl = 'https://api.example.com/items';
+    const configPath = await writeConfig(dir, {
+      api: [{ url: apiUrl, runs: 3 }],
+    });
+    const baselinePath = path.join(dir, '.pulse/baseline.json');
+    await mkdir(path.dirname(baselinePath), { recursive: true });
+    await writeFile(
+      baselinePath,
+      JSON.stringify({
+        version: 3,
+        results: {},
+        apiResults: {
+          [`api::GET::${apiUrl}`]: {
+            url: apiUrl,
+            method: 'GET',
+            runs: 2,
+            capturedAt: '2026-11-02T00:00:00.000Z',
+            metrics: { ttfb: 100, duration: 200, bytes: 1024, status: 200 },
+          },
+        },
+      }),
+      'utf8',
+    );
+
+    const result = await runDoctor({ configPath, baselinePath, skipNetwork: true });
+    const target = result.checks.find((check) => check.name === `baseline api GET ${apiUrl}`);
+    expect(target?.status).toBe('fail');
+    expect(target?.detail).toContain('2 runs');
+    expect(result.ok).toBe(false);
+  });
+
   it('fails a baseline captured with a different Lighthouse major', async () => {
     const dir = await workspace();
     const configPath = await writeConfig(dir);

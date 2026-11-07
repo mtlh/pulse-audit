@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { renderMarkdown, upsertSummary } from '../src/reporters/summary.js';
-import type { AuditMetrics, Check, PulseReport } from '../src/types.js';
+import type { ApiReportEntry, AuditMetrics, Check, PulseReport } from '../src/types.js';
 
 const METRICS: AuditMetrics = {
   lcp: 1545,
@@ -39,7 +39,7 @@ function check(overrides: Partial<Check>): Check {
 
 function report(overrides: Partial<PulseReport> = {}): PulseReport {
   return {
-    version: '2',
+    version: '3',
     generatedAt: '2026-11-02T00:00:00.000Z',
     preset: 'mobile',
     presets: ['mobile'],
@@ -81,6 +81,38 @@ function report(overrides: Partial<PulseReport> = {}): PulseReport {
   };
 }
 
+function apiEntry(): ApiReportEntry {
+  return {
+    url: 'https://api.example.com/items',
+    method: 'GET',
+    result: {
+      url: 'https://api.example.com/items',
+      method: 'GET',
+      runs: 2,
+      capturedAt: '2026-11-02T00:00:00.000Z',
+      metrics: { ttfb: 120, duration: 300, bytes: 2048, status: 200 },
+      samples: [
+        { ttfb: 100, duration: 280, bytes: 2048, status: 200 },
+        { ttfb: 140, duration: 320, bytes: 2048, status: 200 },
+      ],
+    },
+    baseline: null,
+    checks: [
+      check({ metric: 'ttfb', label: 'TTFB', value: 120, formatted: '120ms' }),
+      check({ metric: 'duration', label: 'Duration', value: 300, formatted: '300ms' }),
+      check({
+        metric: 'status',
+        label: 'HTTP status',
+        value: 200,
+        formatted: '200',
+        format: 'count',
+        max: undefined,
+        reason: 'within expected status',
+      }),
+    ],
+  };
+}
+
 describe('renderMarkdown', () => {
   it('renders the existing table without summary markers', () => {
     const markdown = renderMarkdown(report());
@@ -101,6 +133,16 @@ describe('renderMarkdown', () => {
     single.results[0].audit.samples = [{ ...METRICS }];
 
     expect(renderMarkdown(single)).not.toContain('Run spread');
+  });
+
+  it('renders API timings in a separate section', () => {
+    const markdown = renderMarkdown(report({ apiResults: [apiEntry()] }));
+
+    expect(markdown).toContain('## API timings');
+    expect(markdown).toContain('### GET https://api.example.com/items');
+    expect(markdown).toContain('**Response**: 200 · 2.0 KB · 2 runs');
+    expect(markdown).toContain('| TTFB | 120ms |');
+    expect(markdown).toContain('**Run spread**: TTFB 100–140ms');
   });
 });
 

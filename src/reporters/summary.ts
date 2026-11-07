@@ -1,15 +1,30 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
 import { formatDelta, formatPercent, formatValue, noteworthyReason } from '../format.js';
-import type { PulseReport, ReportEntry } from '../types.js';
-import { spreadParts } from './spread.js';
+import type { Check, PulseReport } from '../types.js';
+import { apiSpreadParts, spreadParts } from './spread.js';
 
 const SUMMARY_START = '<!-- pulse:start -->';
 const SUMMARY_END = '<!-- pulse:end -->';
 
-function spreadLine(entry: ReportEntry): string | undefined {
-  const parts = spreadParts(entry);
+function spreadLine(parts: string[]): string | undefined {
   return parts.length > 0 ? `**Run spread**: ${parts.join(' · ')}` : undefined;
+}
+
+function checkTable(checks: Check[]): string[] {
+  const lines = ['| Check | Result | Budget | vs baseline | Status |', '| --- | ---: | ---: | ---: | --- |'];
+
+  for (const check of checks) {
+    const budget = check.max === undefined ? '—' : formatValue(check.max, check.format);
+    const delta =
+      check.delta === undefined
+        ? '—'
+        : `${formatDelta(check.delta, check.format)} (${formatPercent(check.deltaPct)})`;
+    const status = check.status === 'pass' ? 'pass' : check.status.toUpperCase();
+    lines.push(`| ${check.label} | ${check.formatted} | ${budget} | ${delta} | ${status} |`);
+  }
+
+  return lines;
 }
 
 export function renderMarkdown(report: PulseReport): string {
@@ -22,20 +37,9 @@ export function renderMarkdown(report: PulseReport): string {
 
   for (const entry of report.results) {
     lines.push(`### ${entry.url}`, '');
-    lines.push('| Check | Result | Budget | vs baseline | Status |');
-    lines.push('| --- | ---: | ---: | ---: | --- |');
+    lines.push(...checkTable(entry.checks));
 
-    for (const check of entry.checks) {
-      const budget = check.max === undefined ? '—' : formatValue(check.max, check.format);
-      const delta =
-        check.delta === undefined
-          ? '—'
-          : `${formatDelta(check.delta, check.format)} (${formatPercent(check.deltaPct)})`;
-      const status = check.status === 'pass' ? 'pass' : check.status.toUpperCase();
-      lines.push(`| ${check.label} | ${check.formatted} | ${budget} | ${delta} | ${status} |`);
-    }
-
-    const spread = spreadLine(entry);
+    const spread = spreadLine(spreadParts(entry));
     if (spread) lines.push('', spread);
 
     const notes = entry.checks
@@ -53,6 +57,32 @@ export function renderMarkdown(report: PulseReport): string {
     }
 
     lines.push('');
+  }
+
+  const apiResults = report.apiResults ?? [];
+  if (apiResults.length > 0) {
+    lines.push('## API timings', '');
+    for (const entry of apiResults) {
+      lines.push(`### ${entry.method} ${entry.url}`, '');
+      lines.push(
+        `**Response**: ${entry.result.metrics.status} · ${formatValue(
+          entry.result.metrics.bytes,
+          'bytes',
+        )} · ${entry.result.runs} run${entry.result.runs === 1 ? '' : 's'}`,
+        '',
+      );
+      lines.push(...checkTable(entry.checks));
+
+      const spread = spreadLine(apiSpreadParts(entry));
+      if (spread) lines.push('', spread);
+
+      const notes = entry.checks
+        .map((check) => ({ label: check.label, reason: noteworthyReason(check) }))
+        .filter((note): note is { label: string; reason: string } => note.reason !== undefined);
+      for (const note of notes) lines.push('', `- **${note.label}**: ${note.reason}`);
+
+      lines.push('');
+    }
   }
 
   return `${lines.join('\n')}\n`;
