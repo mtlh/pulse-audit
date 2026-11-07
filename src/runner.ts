@@ -72,7 +72,7 @@ export const REQUIRED_PERFORMANCE_AUDITS: ReadonlySet<string> = new Set([
   'total-blocking-time',
   'server-response-time',
   'network-requests',
-  'largest-contentful-paint-element',
+  'lcp-breakdown-insight',
 ]);
 
 interface LighthouseConfigLike {

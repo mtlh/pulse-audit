@@ -3,7 +3,7 @@ import { extractResult } from '../src/extract.js';
 
 function lhr(): Record<string, any> {
   return {
-    lighthouseVersion: '12.6.0',
+    lighthouseVersion: '13.6.0',
     environment: { hostUserAgent: 'Mozilla/5.0 Chrome/126.0.0.0' },
     audits: {
       'largest-contentful-paint': { numericValue: 2500 },
@@ -11,19 +11,16 @@ function lhr(): Record<string, any> {
       'total-blocking-time': { numericValue: 320 },
       'first-contentful-paint': { numericValue: 1500 },
       'server-response-time': { numericValue: 210 },
-      'largest-contentful-paint-element': {
+      'lcp-breakdown-insight': {
         details: {
+          type: 'list',
           items: [
+            { type: 'table', headings: [], items: [] },
             {
-              items: [
-                {
-                  node: {
-                    selector: 'img.hero',
-                    snippet: '<img class="hero">',
-                    url: 'https://example.com/hero.png',
-                  },
-                },
-              ],
+              type: 'node',
+              selector: 'img.hero',
+              snippet: '<img class="hero">',
+              nodeLabel: 'Hero image',
             },
           ],
         },
@@ -151,8 +148,48 @@ describe('extractResult', () => {
       thirdPartyRequests: 3,
       violations: 4,
     });
-    expect(result.lighthouseVersion).toBe('12.6.0');
+    expect(result.lighthouseVersion).toBe('13.6.0');
     expect(result.chromeVersion).toContain('Chrome/126');
+  });
+
+  it('extracts the LCP element from the Lighthouse 13 insight node item', () => {
+    const result = extractResult(lhr(), 'https://example.com/', 'mobile', 3);
+
+    expect(result.lcpElement).toEqual({
+      selector: 'img.hero',
+      snippet: '<img class="hero">',
+      url: undefined,
+    });
+  });
+
+  it('falls back to the Lighthouse 12 LCP element audit shape', () => {
+    const raw = lhr();
+    delete raw.audits['lcp-breakdown-insight'];
+    raw.audits['largest-contentful-paint-element'] = {
+      details: {
+        items: [
+          {
+            items: [
+              {
+                node: {
+                  selector: 'img.legacy',
+                  snippet: '<img class="legacy">',
+                  url: 'https://example.com/legacy.png',
+                },
+              },
+            ],
+          },
+        ],
+      },
+    };
+
+    const result = extractResult(raw, 'https://example.com/', 'mobile', 3);
+
+    expect(result.lcpElement).toEqual({
+      selector: 'img.legacy',
+      snippet: '<img class="legacy">',
+      url: 'https://example.com/legacy.png',
+    });
   });
 
   it('keeps the heaviest request lists, with third parties sorted separately', () => {

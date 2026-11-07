@@ -64,11 +64,18 @@ function sumBytes(requests: RequestSummary[], resourceType?: string): number {
 }
 
 function extractLcpElement(lhr: Lhr): LcpElement | undefined {
+  // Lighthouse 13 exposes the element as a node item in the lcp-breakdown
+  // insight list. Lighthouse 12 used a dedicated audit instead, kept here so
+  // older LHR fixtures and stored reports still resolve.
+  const insightDetails = lhr.audits?.['lcp-breakdown-insight']?.details;
+  const insightItems: any[] = Array.isArray(insightDetails?.items) ? insightDetails.items : [];
+  const insightNode = insightItems.find((item) => item?.type === 'node');
+
   // Shape in Lighthouse 12: details.items[0].items[0].node
-  const details = lhr.audits?.['largest-contentful-paint-element']?.details;
-  const nested = details?.items?.[0]?.items?.[0]?.node;
-  const flat = details?.items?.[0]?.node;
-  const node = nested ?? flat;
+  const legacyDetails = lhr.audits?.['largest-contentful-paint-element']?.details;
+  const nested = legacyDetails?.items?.[0]?.items?.[0]?.node;
+  const flat = legacyDetails?.items?.[0]?.node;
+  const node = insightNode ?? nested ?? flat;
   if (!node) return undefined;
 
   const selector = node.selector ?? node.nodeLabel ?? '';

@@ -91,10 +91,10 @@ a11y gating, and a report that diagnoses instead of scoring.
 
 | Area                                | State                                      | Notes                                                                                  |
 | ----------------------------------- | ------------------------------------------ | -------------------------------------------------------------------------------------- |
-| `package.json` / TS / tsup / vitest | Done                                       | Node 20+, ESM                                                                          |
+| `package.json` / TS / tsup / vitest | Done                                       | Node 22.19+, ESM                                                                       |
 | Config schema + defaults            | **Verified**                               | zod, per-URL overrides, readable units, strict mode                                    |
 | `init` command                      | **Verified**                               | defaults or measured budgets via `--from`                                              |
-| Lighthouse runner                   | **Verified (samples + warm-up + retries)** | Lighthouse 12.8.2; median of N, retries, per-URL isolation, navigate/full/none warm-up |
+| Lighthouse runner                   | **Verified (samples + warm-up + retries)** | Lighthouse 13.6.0; median of N, retries, per-URL isolation, navigate/full/none warm-up |
 | API runner                          | **Verified**                               | authenticated fetch, median of N, no warm-up; TTFB/duration/status/bytes               |
 | LHR extraction                      | **Verified**                               | LCP element, expanded weight metrics and axe nodes checked                             |
 | Compare / budget logic              | **Verified (live + flows)**                | strict mode, impact buckets, `ignoreRules`; UI and API budget evaluation               |
@@ -245,8 +245,9 @@ If Lighthouse fails, check in this order:
 3. The LHR audit IDs in `extract.ts` for the installed Lighthouse version. Run:
    `node -e "import('lighthouse').then(async m=>{const r=await m.default('https://example.com',{output:'json',onlyCategories:['performance','accessibility']});console.log(Object.keys(r.lhr.audits).filter(k=>k.includes('largest')||k.includes('layout')).join('\n'))})"`
    (this starts its own Chrome; use a scratch script if it is awkward).
-4. `largest-contentful-paint-element` details shape changed between majors. The extractor
-   handles nested and flat; add the new shape if needed.
+4. The LCP element audit changed in Lighthouse 13: it now comes from
+   `lcp-breakdown-insight` as a node item in the details list. The extractor also handles
+   the Lighthouse 12 `largest-contentful-paint-element` shape.
 
 ---
 
@@ -370,8 +371,9 @@ from 'chrome-launcher'`.
   and `resourceSize` (uncompressed). Budgets use `transferSize`.
 - `throttlingMethod: 'simulate'` is the stable CI choice. Do not use `devtools` throttling for
   baselines.
-- LCP element lives under `audits['largest-contentful-paint-element'].details.items[0].items[0].node`
-  in current versions. The extractor also checks the flat shape.
+- LCP element comes from `audits['lcp-breakdown-insight'].details.items` (the node item) in
+  Lighthouse 13. The Lighthouse 12 `largest-contentful-paint-element` shapes (nested and
+  flat) are still handled.
 - Axe results are already in the accessibility category. `scoreDisplayMode` values to ignore:
   `notApplicable`, `manual`, `informative`. Count `score < 1` audits as violations.
 
