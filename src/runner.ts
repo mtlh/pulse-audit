@@ -13,6 +13,7 @@ import type {
   Preset,
   WarmupMode,
 } from './types.js';
+import { DEFAULT_TIMEOUT_MS, WARMUP_TIMEOUT_MS } from './util/defaults.js';
 import { median } from './util/median.js';
 import { AUDIT_METRIC_KEYS } from './util/variance.js';
 
@@ -108,6 +109,24 @@ export interface AuditOptions {
   /** Bearer or Basic auth, applied as an extra request header to every page request. */
   auth?: AuthConfig;
   warmup?: WarmupMode;
+  /**
+   * Called as the warm-up and each measured run start and finish. Long CI
+   * audits otherwise look hung between the first log line and the report.
+   */
+  onProgress?: (event: AuditProgressEvent) => void;
+}
+
+/**
+ * One step of an audit. `durationMs` is set on a finish event, including a
+ * failed run, so callers can show where the time went before the error lands.
+ */
+export interface AuditProgressEvent {
+  phase: 'warmup' | 'run';
+  /** 1-based measured-run number. Absent for the warm-up. */
+  run?: number;
+  runs?: number;
+  status: 'start' | 'done' | 'failed';
+  durationMs?: number;
 }
 
 function richerText(current: string | undefined, next: string | undefined): string | undefined {
@@ -217,15 +236,19 @@ export function pickMedianRun(results: AuditResult[]): AuditResult {
  * Warms DNS, TLS, the server cache and the JS compiler without paying for a
  * full Lighthouse trace and axe pass. Best effort: if the preload fails, the
  * measured runs still decide the result.
+ *
+ * The timeout is capped at `WARMUP_TIMEOUT_MS`. A page with a stalled
+ * third-party request can otherwise hold the warm-up for the full measured-run
+ * timeout before the real audit even starts.
  */
-async function warmUpNavigation(url: string, chromePort: number, timeoutMs: number): Promise<void> {
+async function warmUpNavigation(url: string, chromePort: number): Promise<void> {
   try {
     const puppeteer = await loadPuppeteer();
     const browser = await puppeteer.connect({ browserURL: `http://127.0.0.1:${chromePort}` });
     try {
       const page = await browser.newPage();
       try {
-        await page.goto(url, { waitUntil: 'load', timeout: timeoutMs });
+        await page.goto(url, { waitUntil: 'load', timeout: WARMUP_TIMEOUT_MS });
       } finally {
         await page.close();
       }
@@ -260,7 +283,7 @@ async function measureOnce(
         screenEmulation: options.preset === 'mobile' ? MOBILE_SCREEN : DESKTOP_SCREEN,
         throttling: options.preset === 'mobile' ? MOBILE_THROTTLING : DESKTOP_THROTTLING,
         throttlingMethod: 'simulate',
-        maxWaitForLoad: options.timeoutMs ?? 120_000,
+        maxWaitForLoad: options.timeoutMs ?? DEFAULT_TIMEOUT_MS,
         // Lighthouse applies these to every request in the audit, so the token
         // must be scoped to the staging environment rather than production.
         ...(extraHeaders ? { extraHeaders } : {}),
@@ -296,7 +319,7 @@ export async function runAudit(url: string, options: AuditOptions): Promise<Audi
   // Resolve once so a missing secret fails before Chrome is launched.
   const extraHeaders = options.auth ? resolveAuthHeaders(options.auth) : undefined;
   const warmup = options.warmup ?? 'navigate';
-  const timeoutMs = options.timeoutMs ?? 120_000;
+  const onProgress = options.onProgress ?? (() => {});
 
   // Start the Lighthouse import and the browser together: the import is the
   // larger of the two, so the Chrome launch is effectively free.
@@ -328,18 +351,44 @@ export async function runAudit(url: string, options: AuditOptions): Promise<Audi
   const skipAudits = computePerformanceSkipAudits(lighthouseResult.value.defaultConfig);
 
   try {
-    if (warmup === 'navigate') {
-      await warmUpNavigation(url, chrome.port, timeoutMs);
-    } else if (warmup === 'full') {
-      // Legacy behaviour: pay for one discarded Lighthouse run.
-      await measureOnce(url, chrome.port, options, 'warm-up', lighthouse, skipAudits, extraHeaders);
+    if (warmup !== 'none') {
+      const startedAt = Date.now();
+      onProgress({ phase: 'warmup', status: 'start' });
+      if (warmup === 'navigate') {
+        await warmUpNavigation(url, chrome.port);
+      } else {
+        // Legacy behaviour: pay for one discarded Lighthouse run.
+        await measureOnce(url, chrome.port, options, 'warm-up', lighthouse, skipAudits, extraHeaders);
+      }
+      onProgress({ phase: 'warmup', status: 'done', durationMs: Date.now() - startedAt });
     }
 
     const results: AuditResult[] = [];
     for (let run = 0; run < options.runs; run += 1) {
-      results.push(
-        await measureOnce(url, chrome.port, options, run + 1, lighthouse, skipAudits, extraHeaders),
-      );
+      const startedAt = Date.now();
+      const runLabel = run + 1;
+      onProgress({ phase: 'run', run: runLabel, runs: options.runs, status: 'start' });
+      try {
+        results.push(
+          await measureOnce(url, chrome.port, options, runLabel, lighthouse, skipAudits, extraHeaders),
+        );
+      } catch (error) {
+        onProgress({
+          phase: 'run',
+          run: runLabel,
+          runs: options.runs,
+          status: 'failed',
+          durationMs: Date.now() - startedAt,
+        });
+        throw error;
+      }
+      onProgress({
+        phase: 'run',
+        run: runLabel,
+        runs: options.runs,
+        status: 'done',
+        durationMs: Date.now() - startedAt,
+      });
     }
 
     return pickMedianRun(results);
