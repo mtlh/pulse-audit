@@ -44,7 +44,7 @@ describe('user flow: initialise a project', () => {
     expect(config.runs).toBe(3);
     expect(config.strict).toBe(false);
     expect(config.retries).toBe(1);
-    expect(config.timeoutMs).toBe(120_000);
+    expect(config.timeoutMs).toBe(45_000);
     expect(config.budgets.lcp.max).toBe(2500);
     // init serializes normalized numbers, not the readable-unit strings.
     expect(typeof config.budgets.fcp.max).toBe('number');

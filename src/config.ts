@@ -14,6 +14,7 @@ import type {
   ResolvedApiTarget,
   ResolvedPageConfig,
 } from './types.js';
+import { DEFAULT_TIMEOUT_MS } from './util/defaults.js';
 import { parseBytes, parseCount, parseDuration, parsePercent, parseScore } from './util/units.js';
 
 type UnitParser = (value: unknown) => unknown;
@@ -187,7 +188,7 @@ export const configSchema = z
     runs: z.number().int().min(1).max(10).default(3),
     strict: z.boolean().default(false),
     retries: z.number().int().nonnegative().max(10).default(1),
-    timeoutMs: z.number().int().positive().default(120_000),
+    timeoutMs: z.number().int().positive().default(DEFAULT_TIMEOUT_MS),
     warmup: z.enum(['full', 'navigate', 'none']).default('navigate'),
     urls: z.array(z.union([auditUrlSchema, pageTargetSchema])).default([]),
     budgets: budgetsSchema.default({}),
@@ -320,7 +321,7 @@ export function resolveApiTargets(config: PulseConfig): ResolvedApiTarget[] {
     auth: target.auth,
     runs: target.runs ?? config.runs,
     retries: config.retries ?? 1,
-    timeoutMs: target.timeoutMs ?? config.timeoutMs ?? 120_000,
+    timeoutMs: target.timeoutMs ?? config.timeoutMs ?? DEFAULT_TIMEOUT_MS,
     expectStatus: target.expectStatus,
     budgets: mergeApiBudgets(config.apiBudgets, target.budgets),
   }));
@@ -395,7 +396,7 @@ export function defaultConfig(urls: string[]): PulseConfig {
     runs: 3,
     strict: false,
     retries: 1,
-    timeoutMs: 120_000,
+    timeoutMs: DEFAULT_TIMEOUT_MS,
     warmup: 'navigate',
     urls,
     api: [],

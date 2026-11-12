@@ -5,6 +5,7 @@ import pc from 'picocolors';
 import type { DoctorCheck } from './doctor.js';
 import type { ValueFormat } from './format.js';
 import type { ApiReportInput, ReportInput } from './report.js';
+import type { AuditProgressEvent } from './runner.js';
 import type { Preset, PulseConfig, WarmupMode } from './types.js';
 import { eventLoopDrains, flushStream } from './util/exit.js';
 import { VERSION } from './version.js';
@@ -93,6 +94,22 @@ function pad(value: string, width: number): string {
 
 function metricRow(label: string, measured: string, budget: string): string {
   return `  ${pad(label, 22)}${pad(measured, 12)}${budget}`;
+}
+
+function formatElapsed(durationMs: number | undefined): string {
+  if (durationMs === undefined) return '';
+  return durationMs >= 1000 ? `${(durationMs / 1000).toFixed(1)}s` : `${Math.round(durationMs)}ms`;
+}
+
+/** One dim line per phase, so a slow run is visible in the CI log as it happens. */
+function auditProgressLine(event: AuditProgressEvent): string | undefined {
+  if (event.phase === 'warmup') {
+    return event.status === 'done' ? `warm-up ${formatElapsed(event.durationMs)}` : undefined;
+  }
+  const run = `${event.run}/${event.runs}`;
+  if (event.status === 'start') return `run ${run}…`;
+  if (event.status === 'failed') return `run ${run} failed after ${formatElapsed(event.durationMs)}`;
+  return `run ${run} ${formatElapsed(event.durationMs)}`;
 }
 
 const program = new Command();
@@ -213,7 +230,10 @@ program
   .option('--out <dir>', 'report output directory')
   .option('--summary <path>', 'write a Markdown summary to this file (the pulse block is replaced)')
   .option('--retries <n>', 'extra attempts after a failed Lighthouse run or API request')
-  .option('--timeout <ms>', 'Lighthouse maxWaitForLoad and API request timeout in milliseconds')
+  .option(
+    '--timeout <ms>',
+    'Lighthouse maxWaitForLoad and API request timeout in milliseconds (default 45000)',
+  )
   .option('--warmup <mode>', 'warm-up before measured runs: navigate, full or none')
   .option('--github-output', 'write report-path and counts to $GITHUB_OUTPUT')
   .option('--update-baseline', 'write the audit result to the baseline file')
@@ -337,6 +357,10 @@ program
             timeoutMs: page.timeoutMs,
             auth: page.auth,
             warmup: page.warmup,
+            onProgress: (event) => {
+              const line = auditProgressLine(event);
+              if (line !== undefined) progress(line);
+            },
           });
 
           const raw = baseline.results[baselineKey(page.preset, pageUrl)];

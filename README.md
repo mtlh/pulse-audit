@@ -95,7 +95,7 @@ are percentages (`10` or `"10%"`); CLS and counts are numbers.
   "runs": 3,
   "strict": false,
   "retries": 1,
-  "timeoutMs": 120000,
+  "timeoutMs": 45000,
   "warmup": "navigate",
   "urls": [
     "https://example.com/",
@@ -171,13 +171,19 @@ are percentages (`10` or `"10%"`); CLS and counts are numbers.
 - `retries` is the number of extra attempts after a failed Lighthouse or API request
   (default `1`).
 - `timeoutMs` maps to Lighthouse `maxWaitForLoad` and to the API request timeout
-  (default `120000`).
+  (default `45000`, Lighthouse's own page-load default). A page that cannot reach a quiet
+  network in that window is usually waiting on a stalled third-party request; waiting longer
+  only slows CI, and every retry doubles the delay.
 - `warmup` controls what happens before the measured page runs. `"navigate"` (default)
   preloads the page once in a plain Chrome tab, which warms DNS, TLS, the server and the JS
   compiler without paying for a full Lighthouse audit. `"full"` keeps the old behaviour of
   running and discarding a complete Lighthouse run; `"none"` starts cold. The first measured
   run is still reported like any other, so the median is unchanged. API endpoints are not
-  warmed up.
+  warmed up. The navigation warm-up is capped at 10 s, so a stalled page cannot delay the
+  measured runs indefinitely.
+- `audit` prints one progress line for the warm-up and for each measured run (`run 1/3 6.2s`),
+  so a slow audit is visible in CI instead of looking hung between the start line and the
+  report.
 - A rule must set `max` or `regression`; an accessibility rule must set `maxViolations`,
   `maxNew` or `maxNewByImpact`. Inert rules are rejected at load time.
 

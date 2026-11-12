@@ -51,7 +51,7 @@ describe('config', () => {
     expect(parsed.runs).toBe(3);
     expect(parsed.strict).toBe(false);
     expect(parsed.retries).toBe(1);
-    expect(parsed.timeoutMs).toBe(120_000);
+    expect(parsed.timeoutMs).toBe(45_000);
     expect(parsed.warmup).toBe('navigate');
     expect(parsed.report.outDir).toBe('.pulse');
     expect(parsed.budgets.lcp?.max).toBe(2500);
@@ -66,7 +66,7 @@ describe('config', () => {
     expect(parsed.runs).toBe(3);
     expect(parsed.strict).toBe(false);
     expect(parsed.retries).toBe(1);
-    expect(parsed.timeoutMs).toBe(120_000);
+    expect(parsed.timeoutMs).toBe(45_000);
     expect(parsed.warmup).toBe('navigate');
     expect(parsed.report.outDir).toBe('.pulse');
   });

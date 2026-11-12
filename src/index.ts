@@ -12,7 +12,7 @@ export {
   writeConfig,
 } from './config.js';
 export { runAudit, pickMedianRun } from './runner.js';
-export type { AuditOptions } from './runner.js';
+export type { AuditOptions, AuditProgressEvent } from './runner.js';
 export { runApiAudit, pickMedianApiSample } from './api.js';
 export { expandEnv, resolveAuthHeaders, resolveRequestHeaders } from './auth.js';
 export { findChromeBinary, isWsl, linuxChromeCandidates } from './chrome.js';

@@ -445,7 +445,13 @@ from 'chrome-launcher'`.
   reads them. That saves about a second per run and leaves metrics and axe results unchanged.
 - Warm-up defaults to `navigate`: one plain Chrome page load via `puppeteer-core`, which warms
   DNS, TLS, the server and the JS compiler without a Lighthouse trace or axe pass. Use a full
-  warm-up to restore the discarded Lighthouse run, or none to measure a cold browser.
+  warm-up to restore the discarded Lighthouse run, or none to measure a cold browser. The
+  navigation warm-up is capped at 10 s so a stalled third-party request cannot delay the
+  measured runs.
+- `timeoutMs` defaults to Lighthouse's own 45 s `maxWaitForLoad` (not 120 s). Every retry adds
+  another full timeout, so a stalled page used to turn a three-run audit into a ten-minute job.
+  The audit prints one progress line per warm-up and measured run, including its duration, so
+  CI logs show where the time goes.
 - Lighthouse and `puppeteer-core` are imported lazily inside `runAudit`, and the import runs in
   parallel with the Chrome launch. Non-audit commands (`doctor`, `baseline`, `--version`) and
   library imports therefore start in about 100 ms instead of 1.7 s.
