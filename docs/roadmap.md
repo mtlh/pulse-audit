@@ -1,6 +1,7 @@
 # Feature expansion plan
 
-Status: v0.2.0 ("trustworthy gate") is released on npm. v0.3 and v1.0 remain pending. This
+Status: v0.2.0 ("trustworthy gate") is released on npm, followed by the v0.2.1 dependency
+refresh. v0.3 and v1.0 remain pending. This
 document answers three questions: what Pulse does well today, what it is missing, and which
 gaps are worth closing in which order.
 

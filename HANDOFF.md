@@ -6,13 +6,34 @@ to verify it.
 
 - **Repository:** `github.com/mtlh/pulse-audit`
 - **Owner:** Matthew Harvey (`github.com/mtlh`)
-- **Status:** v0.2.0 live on npm as `@mtlh/pulse-audit`; trustworthy-gate and WSL changes are released; npx-first, no composite action
-- **Git:** `main` pushed; `v0.2.0` tagged and pushed by the release workflow
+- **Status:** v0.2.1 live on npm as `@mtlh/pulse-audit`; trustworthy-gate, WSL and the dependency refresh are released; npx-first, no composite action
+- **Git:** `main` pushed; `v0.2.1` tagged and pushed by the release workflow
 - **Related portfolio:** `PortfolioV2` (separate local checkout)
 
 ---
 
-## v0.2.0 release — "trustworthy gate"
+## v0.2.1 release - dependency refresh
+
+Lighthouse 12 pulled in `@sentry/node` 9 and, through it, the deprecated
+`@opentelemetry/sdk-trace-base@1.30.1`. Every Sentry 9.x resolution lands on that last 1.x
+release, so neither `npm ci` nor a transitive bump could clear the warning. Lighthouse 13 uses
+`@sentry/node` 11, which no longer depends on `sdk-trace-base`.
+
+The dependency refresh itself (Lighthouse 13, Puppeteer 25, Zod 4, Commander 15, TypeScript 6,
+Vitest 5, Node >= 22.19.0) was merged in PR #12, but `package.json` stayed at 0.2.0, which npm
+already had, so the release workflow skipped it. This patch bumps the version so the refreshed
+package can ship. There is no CLI or report-schema change; the Node floor moves to 22.19.0
+because that is Lighthouse 13's minimum.
+
+Verified with `npm run typecheck`, `npm test` (185 passed, 11 skipped), `npm run test:e2e`
+(21 flow tests, including the packed install), and a live three-run dogfood audit of
+`https://mtlh.vercel.app/` against `.pulse.json` budgets (LCP 1.23 s, CLS 0, TBT 0 ms,
+JavaScript 1.2 KB, images 15.3 KB, 8 requests, 0 a11y violations; all budgets passed and the
+LCP element resolved through the Lighthouse 13 `lcp-breakdown-insight` shape).
+
+---
+
+## v0.2.0 release - "trustworthy gate"
 
 The v0.2 scope from `docs/roadmap.md` shipped as `0.2.0`: it was merged in PR #1 on top of
 v0.1.0 and released by the main-branch workflow.
@@ -108,7 +129,7 @@ a11y gating, and a report that diagnoses instead of scoring.
 | Unit tests                          | Done                                       | 169 tests in the current tree                                                          |
 | Integration tests / fixture site    | **Verified**                               | deterministic fixture + 19 CLI flows; `PULSE_E2E=1`                                    |
 | Docs                                | Updated                                    | budgets, roadmap, WSL, auth/API, quick start, test commands                            |
-| npm publish                         | **Live**                                   | `@mtlh/pulse-audit@0.2.0`; release workflow publishes new versions from `main`         |
+| npm publish                         | **Live**                                   | `@mtlh/pulse-audit@0.2.1`; release workflow publishes new versions from `main`         |
 | Release workflow                    | **Added**                                  | main push → publish new version → tag/release                                          |
 | PR comment                          | Not done                                   | step summary only                                                                      |
 
@@ -399,7 +420,7 @@ from 'chrome-launcher'`.
 ### Distribution
 
 - The package is published as `@mtlh/pulse-audit`; the binary is `pulse`. Consumers should run
-  `npx @mtlh/pulse-audit@0.2.0 ...`.
+  `npx @mtlh/pulse-audit@0.2.1 ...`.
 - `.github/workflows/release.yml` publishes from `main` only when `package.json` has a version
   not already on npm, waits for registry propagation, then tags and creates a GitHub release.
   It requires the `NPM_TOKEN` repository secret (or trusted publishing configured on npm).
