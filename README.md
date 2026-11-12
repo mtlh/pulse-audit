@@ -6,10 +6,13 @@ Pulse audits a deployed URL, compares the result to your last green `main` build
 the pull request only when something got worse — with a report that names the element,
 request or axe rule responsible.
 
-> **Status: v0.2.0 is the current release.** Install/run with
-> `npx @mtlh/pulse-audit@0.2.0`. It adds baseline v3, readable config units, per-URL budgets,
+> **Status: v0.2.1 is the current release.** Install/run with
+> `npx @mtlh/pulse-audit@0.2.1`. It adds baseline v3, readable config units, per-URL budgets,
 > authenticated UI/API timing checks, WSL support and the new CLI surface. Public repo:
 > `github.com/mtlh/pulse-audit`.
+>
+> v0.2.1 is a dependency refresh: Lighthouse 13, Puppeteer 25, Zod 4 and Commander 15. It
+> requires Node >= 22.19.0, the minimum for Lighthouse 13.
 
 ## Why another performance tool
 
@@ -34,13 +37,13 @@ and focuses on:
 
 ```bash
 # 1. Create a config, measured from the page you care about
-npx @mtlh/pulse-audit@0.2.0 init --from https://example.com
+npx @mtlh/pulse-audit@0.2.1 init --from https://example.com
 
 # 2. First run establishes the baseline
-npx @mtlh/pulse-audit@0.2.0 audit --update-baseline
+npx @mtlh/pulse-audit@0.2.1 audit --update-baseline
 
 # 3. Verify and open the report
-npx @mtlh/pulse-audit@0.2.0 audit
+npx @mtlh/pulse-audit@0.2.1 audit
 # .pulse/report.html
 ```
 
@@ -270,8 +273,8 @@ audit.
 Pulse is a CLI, so it works in any runner that has Node and Chrome:
 
 ```yaml
-- run: npx @mtlh/pulse-audit@0.2.0 doctor --skip-network
-- run: npx @mtlh/pulse-audit@0.2.0 audit --runs 3 --summary "$GITHUB_STEP_SUMMARY" --github-output
+- run: npx @mtlh/pulse-audit@0.2.1 doctor --skip-network
+- run: npx @mtlh/pulse-audit@0.2.1 audit --runs 3 --summary "$GITHUB_STEP_SUMMARY" --github-output
 ```
 
 `--github-output` appends `report-path`, `failed`, `failed-count`, `warned-count` and
