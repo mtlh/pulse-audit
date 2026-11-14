@@ -20,16 +20,15 @@ export function flushStream(stream: FlushableStream): Promise<void> {
 
   return new Promise<void>((resolve) => {
     let settled = false;
-    let timer: NodeJS.Timeout | undefined;
 
     const done = (): void => {
       if (settled) return;
       settled = true;
-      if (timer !== undefined) clearTimeout(timer);
+      clearTimeout(timer);
       resolve();
     };
 
-    timer = setTimeout(done, FLUSH_TIMEOUT_MS);
+    const timer = setTimeout(done, FLUSH_TIMEOUT_MS);
     timer.unref();
 
     try {
@@ -60,19 +59,22 @@ export const DRAIN_GRACE_MS = 250;
 export function eventLoopDrains(graceMs: number = DRAIN_GRACE_MS): Promise<boolean> {
   return new Promise<boolean>((resolve) => {
     let settled = false;
-    let timer: NodeJS.Timeout | undefined;
 
     const finish = (drained: boolean): void => {
       if (settled) return;
       settled = true;
-      if (timer !== undefined) clearTimeout(timer);
+      clearTimeout(timer);
       process.removeListener('beforeExit', onBeforeExit);
       resolve(drained);
     };
 
-    const onBeforeExit = (): void => finish(true);
+    const onBeforeExit = (): void => {
+      finish(true);
+    };
 
-    timer = setTimeout(() => finish(false), graceMs);
+    const timer = setTimeout(() => {
+      finish(false);
+    }, graceMs);
     timer.unref();
     process.once('beforeExit', onBeforeExit);
   });

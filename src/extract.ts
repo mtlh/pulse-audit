@@ -13,19 +13,56 @@ import type {
 } from './types.js';
 import { IMPACT_ORDER } from './util/a11y.js';
 
+/** A JSON object from an untrusted/versioned payload. */
+type JsonObject = Record<string, unknown>;
+
+interface LhrDetails {
+  [key: string]: unknown;
+  items?: unknown;
+  debugData?: unknown;
+}
+
+interface LhrAudit {
+  [key: string]: unknown;
+  id?: unknown;
+  title?: unknown;
+  score?: unknown;
+  scoreDisplayMode?: unknown;
+  numericValue?: unknown;
+  details?: LhrDetails;
+}
+
+interface Lhr {
+  [key: string]: unknown;
+  audits?: Record<string, LhrAudit | undefined>;
+  categories?: { accessibility?: { auditRefs?: unknown } };
+  lighthouseVersion?: unknown;
+  environment?: { hostUserAgent?: unknown };
+}
+
+function asObject(value: unknown): JsonObject | undefined {
+  return typeof value === 'object' && value !== null ? (value as JsonObject) : undefined;
+}
+
+function asArray(value: unknown): unknown[] {
+  return Array.isArray(value) ? value : [];
+}
+
+function asString(value: unknown): string | undefined {
+  return typeof value === 'string' ? value : undefined;
+}
+
 /**
  * Lighthouse's LHR is enormous and changes shape between minor versions.
  * Keep every access defensive and verify the audit IDs against the installed
  * Lighthouse version before changing anything here.
  */
-type Lhr = Record<string, any>;
-
 export function isA11yImpact(value: unknown): value is A11yImpact {
   return value === 'critical' || value === 'serious' || value === 'moderate' || value === 'minor';
 }
 
 /** Worst (most severe) impact, defaulting to `serious` like axe/Lighthouse. */
-export function worstImpact(impacts: Array<A11yImpact | undefined>): A11yImpact {
+export function worstImpact(impacts: (A11yImpact | undefined)[]): A11yImpact {
   for (const impact of IMPACT_ORDER) {
     if (impacts.includes(impact)) return impact;
   }
@@ -54,30 +91,34 @@ const LONG_TASK_DETAIL_LIMIT = 5;
  */
 function extractLongTasks(lhr: Lhr): { count: number; details: LongTaskDetail[] } {
   const details = lhr.audits?.['long-tasks']?.details;
-  const debugData = details?.debugData;
-  const urls: unknown[] = Array.isArray(debugData?.urls) ? debugData.urls : [];
-  const debugTasks: any[] = Array.isArray(debugData?.tasks) ? debugData.tasks : [];
-  const itemTasks: any[] = Array.isArray(details?.items) ? details.items : [];
+  const debugData = asObject(details?.debugData);
+  const urls = asArray(debugData?.urls);
+  const debugTasks = asArray(debugData?.tasks);
+  const itemTasks = asArray(details?.items);
   // Prefer the complete list; fall back when a stored/older LHR has only items.
   const rawTasks = debugTasks.length > 0 ? debugTasks : itemTasks;
 
   const tasks: LongTaskDetail[] = [];
-  for (const task of rawTasks) {
-    const duration = finiteNumber(task?.duration);
+  for (const rawTask of rawTasks) {
+    const task = asObject(rawTask);
+    if (!task) continue;
+
+    const duration = finiteNumber(task.duration);
     if (duration === undefined || duration < LONG_TASK_THRESHOLD_MS) continue;
 
-    const urlIndex = finiteNumber(task?.urlIndex);
+    const urlIndex = finiteNumber(task.urlIndex);
     const indexedUrl = urlIndex === undefined ? undefined : urls[urlIndex];
+    const taskUrl = asString(task.url);
     const attributed =
-      typeof task?.url === 'string' && task.url.length > 0
-        ? task.url
+      taskUrl !== undefined && taskUrl.length > 0
+        ? taskUrl
         : typeof indexedUrl === 'string' && indexedUrl.length > 0
           ? indexedUrl
           : undefined;
 
     tasks.push({
       url: attributed,
-      startTime: finiteNumber(task?.startTime) ?? 0,
+      startTime: finiteNumber(task.startTime) ?? 0,
       duration,
     });
   }
@@ -97,22 +138,25 @@ function sameOrigin(candidate: string, pageUrl: string): boolean {
 }
 
 function extractRequests(lhr: Lhr, pageUrl: string): RequestSummary[] {
-  const items: any[] = lhr.audits?.['network-requests']?.details?.items ?? [];
-  return items
-    .filter((item) => typeof item?.url === 'string')
-    .map((item) => {
-      const statusCode = typeof item.statusCode === 'number' ? item.statusCode : undefined;
-      return {
-        url: item.url as string,
-        resourceType: (item.resourceType as string) ?? 'Other',
-        bytes: Number(item.transferSize ?? item.resourceSize ?? 0),
-        thirdParty: typeof item.thirdParty === 'boolean' ? item.thirdParty : !sameOrigin(item.url, pageUrl),
-        statusCode,
-        // Redirects are not failures; only an error response or a request that
-        // never finished counts as a failed subresource.
-        failed: (statusCode !== undefined && statusCode >= 400) || item.finished === false,
-      };
+  const requests: RequestSummary[] = [];
+  for (const rawItem of asArray(lhr.audits?.['network-requests']?.details?.items)) {
+    const item = asObject(rawItem);
+    const url = item === undefined ? undefined : asString(item.url);
+    if (item === undefined || url === undefined) continue;
+
+    const statusCode = typeof item.statusCode === 'number' ? item.statusCode : undefined;
+    requests.push({
+      url,
+      resourceType: asString(item.resourceType) ?? 'Other',
+      bytes: Number(item.transferSize ?? item.resourceSize ?? 0),
+      thirdParty: typeof item.thirdParty === 'boolean' ? item.thirdParty : !sameOrigin(url, pageUrl),
+      statusCode,
+      // Redirects are not failures; only an error response or a request that
+      // never finished counts as a failed subresource.
+      failed: (statusCode !== undefined && statusCode >= 400) || item.finished === false,
     });
+  }
+  return requests;
 }
 
 function isFailedRequest(request: RequestSummary): boolean {
@@ -132,24 +176,25 @@ function extractLcpElement(lhr: Lhr): LcpElement | undefined {
   // Lighthouse 13 exposes the element as a node item in the lcp-breakdown
   // insight list. Lighthouse 12 used a dedicated audit instead, kept here so
   // older LHR fixtures and stored reports still resolve.
-  const insightDetails = lhr.audits?.['lcp-breakdown-insight']?.details;
-  const insightItems: any[] = Array.isArray(insightDetails?.items) ? insightDetails.items : [];
-  const insightNode = insightItems.find((item) => item?.type === 'node');
+  const insightItems = asArray(lhr.audits?.['lcp-breakdown-insight']?.details?.items);
+  const insightNode = insightItems.map(asObject).find((item) => item?.type === 'node');
 
   // Shape in Lighthouse 12: details.items[0].items[0].node
-  const legacyDetails = lhr.audits?.['largest-contentful-paint-element']?.details;
-  const nested = legacyDetails?.items?.[0]?.items?.[0]?.node;
-  const flat = legacyDetails?.items?.[0]?.node;
+  const legacyItems = asArray(lhr.audits?.['largest-contentful-paint-element']?.details?.items);
+  const firstLegacyItem = asObject(legacyItems[0]);
+  const nestedItems = asArray(firstLegacyItem?.items);
+  const nested = asObject(asObject(nestedItems[0])?.node);
+  const flat = asObject(firstLegacyItem?.node);
   const node = insightNode ?? nested ?? flat;
   if (!node) return undefined;
 
-  const selector = node.selector ?? node.nodeLabel ?? '';
+  const selector = asString(node.selector) ?? asString(node.nodeLabel) ?? '';
   if (!selector) return undefined;
 
   return {
     selector,
-    url: typeof node.url === 'string' ? node.url : undefined,
-    snippet: typeof node.snippet === 'string' ? node.snippet : undefined,
+    url: asString(node.url),
+    snippet: asString(node.snippet),
   };
 }
 
@@ -170,22 +215,28 @@ function entityName(value: unknown): string {
  * blocking time for entities without a main-thread measurement.
  */
 function thirdPartyCpuItems(lhr: Lhr): ThirdPartyCpu[] | undefined {
-  const insightItems: unknown = lhr.audits?.['third-parties-insight']?.details?.items;
+  const insightItems = lhr.audits?.['third-parties-insight']?.details?.items;
   if (Array.isArray(insightItems)) {
-    return insightItems.map((item: any) => ({
-      entity: entityName(item?.entity),
-      mainThreadTime: finiteNumber(item?.mainThreadTime) ?? 0,
-      transferSize: finiteNumber(item?.transferSize) ?? 0,
-    }));
+    return insightItems.map((rawItem) => {
+      const item = asObject(rawItem);
+      return {
+        entity: entityName(item?.entity),
+        mainThreadTime: finiteNumber(item?.mainThreadTime) ?? 0,
+        transferSize: finiteNumber(item?.transferSize) ?? 0,
+      };
+    });
   }
 
-  const fallbackItems: unknown = lhr.audits?.['third-party-summary']?.details?.items;
+  const fallbackItems = lhr.audits?.['third-party-summary']?.details?.items;
   if (!Array.isArray(fallbackItems)) return undefined;
-  return fallbackItems.map((item: any) => ({
-    entity: entityName(item?.entity),
-    mainThreadTime: finiteNumber(item?.mainThreadTime) ?? finiteNumber(item?.blockingTime) ?? 0,
-    transferSize: finiteNumber(item?.transferSize) ?? 0,
-  }));
+  return fallbackItems.map((rawItem) => {
+    const item = asObject(rawItem);
+    return {
+      entity: entityName(item?.entity),
+      mainThreadTime: finiteNumber(item?.mainThreadTime) ?? finiteNumber(item?.blockingTime) ?? 0,
+      transferSize: finiteNumber(item?.transferSize) ?? 0,
+    };
+  });
 }
 
 function normalizeConsoleDescription(value: unknown): string {
@@ -201,19 +252,19 @@ export function extractConsoleErrors(lhr: Lhr): ConsoleError[] {
   const audit = lhr.audits?.['errors-in-console'];
   if (!audit || audit.scoreDisplayMode === 'notApplicable') return [];
 
-  const items: any[] = Array.isArray(audit.details?.items) ? audit.details.items : [];
   const seen = new Set<string>();
   const errors: ConsoleError[] = [];
 
-  for (const item of items) {
+  for (const rawItem of asArray(audit.details?.items)) {
+    const item = asObject(rawItem);
     const description = normalizeConsoleDescription(item?.description);
     if (!description || seen.has(description)) continue;
     seen.add(description);
 
-    const location = item?.sourceLocation;
+    const location = asObject(item?.sourceLocation);
     errors.push({
       description,
-      url: typeof location?.url === 'string' ? location.url : undefined,
+      url: asString(location?.url),
       line: typeof location?.line === 'number' ? location.line : undefined,
       column: typeof location?.column === 'number' ? location.column : undefined,
     });
@@ -223,23 +274,28 @@ export function extractConsoleErrors(lhr: Lhr): ConsoleError[] {
 }
 
 function extractViolations(lhr: Lhr): A11yViolation[] {
-  const refs: any[] = lhr.categories?.accessibility?.auditRefs ?? [];
+  const refs = asArray(lhr.categories?.accessibility?.auditRefs);
   const violations: A11yViolation[] = [];
 
-  for (const ref of refs) {
-    const audit = lhr.audits?.[ref.id];
+  for (const rawRef of refs) {
+    const ref = asObject(rawRef);
+    const refId = asString(ref?.id);
+    if (ref === undefined || refId === undefined) continue;
+
+    const audit = lhr.audits?.[refId];
     if (!audit) continue;
-    if (['notApplicable', 'manual', 'informative'].includes(audit.scoreDisplayMode)) continue;
+    if (['notApplicable', 'manual', 'informative'].includes(asString(audit.scoreDisplayMode) ?? '')) continue;
     if (typeof audit.score !== 'number' || audit.score >= 1) continue;
 
-    const items: any[] = audit.details?.items ?? [];
-    const nodes: A11yNode[] = items
-      .map((item) => {
-        const rawImpact = item?.node?.impact ?? item?.impact;
-        const failureSummary = item?.node?.failureSummary ?? item?.failureSummary;
+    const nodes: A11yNode[] = asArray(audit.details?.items)
+      .map((rawItem) => {
+        const item = asObject(rawItem);
+        const node = asObject(item?.node);
+        const rawImpact = node?.impact ?? item?.impact;
+        const failureSummary = node?.failureSummary ?? item?.failureSummary;
         return {
-          selector: (item?.node?.selector ?? item?.selector ?? '') as string,
-          snippet: (item?.node?.snippet ?? item?.snippet ?? undefined) as string | undefined,
+          selector: asString(node?.selector) ?? asString(item?.selector) ?? '',
+          snippet: asString(node?.snippet) ?? asString(item?.snippet),
           impact: isA11yImpact(rawImpact) ? rawImpact : undefined,
           failureSummary:
             typeof failureSummary === 'string' && failureSummary.trim().length > 0
@@ -250,8 +306,8 @@ function extractViolations(lhr: Lhr): A11yViolation[] {
       .filter((node) => node.selector.length > 0);
 
     violations.push({
-      id: (audit.id ?? ref.id) as string,
-      title: (audit.title ?? ref.id) as string,
+      id: asString(audit.id) ?? refId,
+      title: asString(audit.title) ?? refId,
       impact: worstImpact(nodes.map((node) => node.impact)),
       nodes,
     });

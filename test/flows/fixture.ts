@@ -1,4 +1,4 @@
-import { createServer, type Server } from 'node:http';
+import { createServer, type Server, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
 
 /**
@@ -36,7 +36,7 @@ function isAuthorized(request: { headers: { authorization?: string } }): boolean
   return header === basic;
 }
 
-function json(response: import('node:http').ServerResponse, status: number, body: unknown): void {
+function json(response: ServerResponse, status: number, body: unknown): void {
   const payload = JSON.stringify(body);
   response.writeHead(status, {
     'content-type': 'application/json; charset=utf-8',
@@ -115,7 +115,7 @@ export async function startFixture(): Promise<FixtureSite> {
   const script = heavyScript();
   const apiPadding = 'api-padding '.repeat(512);
 
-  const routes: Record<string, { type: string; body: string }> = {
+  const routes: Record<string, { type: string; body: string } | undefined> = {
     '/heavy.js': { type: 'text/javascript; charset=utf-8', body: script },
     '/hero.svg': { type: 'image/svg+xml', body: hero },
     '/pixel.svg': { type: 'image/svg+xml', body: pixel },
@@ -199,7 +199,10 @@ export async function startFixture(): Promise<FixtureSite> {
     state,
     close: () =>
       new Promise<void>((resolve, reject) => {
-        server.close((error) => (error ? reject(error) : resolve()));
+        server.close((error) => {
+          if (error) reject(error);
+          else resolve();
+        });
       }),
   };
 }

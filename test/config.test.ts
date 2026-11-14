@@ -173,7 +173,7 @@ describe('config', () => {
     });
     expect(parsed.success).toBe(false);
     if (!parsed.success) {
-      expect(parsed.error.issues.some((issue) => /max or regression/.test(issue.message))).toBe(true);
+      expect(parsed.error.issues.some((issue) => issue.message.includes('max or regression'))).toBe(true);
     }
   });
 
@@ -216,12 +216,12 @@ describe('resolveTargets', () => {
 
     const [home, app] = resolveTargets(config);
 
-    expect(home?.urls).toEqual(['https://example.com/']);
-    expect(home?.budgets.lcp).toEqual({ max: 2500, regression: 10 });
-    expect(app?.urls).toEqual(['https://example.com/app']);
-    expect(app?.budgets.lcp).toEqual({ max: 3000, regression: 10 });
-    expect(app?.budgets.js).toEqual({ max: 256_000 });
-    expect(app?.budgets.a11y).toEqual({
+    expect(home.urls).toEqual(['https://example.com/']);
+    expect(home.budgets.lcp).toEqual({ max: 2500, regression: 10 });
+    expect(app.urls).toEqual(['https://example.com/app']);
+    expect(app.budgets.lcp).toEqual({ max: 3000, regression: 10 });
+    expect(app.budgets.js).toEqual({ max: 256_000 });
+    expect(app.budgets.a11y).toEqual({
       maxViolations: 10,
       maxNew: 2,
       maxNewByImpact: { critical: 0, serious: 1 },
@@ -236,10 +236,10 @@ describe('resolveTargets', () => {
     });
 
     const [home, app] = resolveTargets(config);
-    expect(home?.preset).toBe('mobile');
-    expect(home?.runs).toBe(3);
-    expect(app?.preset).toBe('desktop');
-    expect(app?.runs).toBe(5);
+    expect(home.preset).toBe('mobile');
+    expect(home.runs).toBe(3);
+    expect(app.preset).toBe('desktop');
+    expect(app.runs).toBe(5);
   });
 
   it('keeps strict, retries and timeout on resolved configs', () => {
@@ -252,10 +252,10 @@ describe('resolveTargets', () => {
     });
 
     const [resolved] = resolveTargets(config);
-    expect(resolved?.strict).toBe(true);
-    expect(resolved?.retries).toBe(4);
-    expect(resolved?.timeoutMs).toBe(30_000);
-    expect(resolved?.warmup).toBe('full');
+    expect(resolved.strict).toBe(true);
+    expect(resolved.retries).toBe(4);
+    expect(resolved.timeoutMs).toBe(30_000);
+    expect(resolved.warmup).toBe('full');
   });
 });
 
@@ -372,7 +372,7 @@ describe('writeConfig', () => {
       });
 
       const raw = JSON.parse(await readFile(path, 'utf8')) as {
-        urls: Array<string | Record<string, unknown>>;
+        urls: (string | Record<string, unknown>)[];
       };
       expect(raw.urls[0]).toBe('https://example.com/');
       expect(raw.urls[1]).toMatchObject({
@@ -420,7 +420,7 @@ describe('writeConfig', () => {
       });
 
       const raw = JSON.parse(await readFile(path, 'utf8')) as {
-        api: Array<Record<string, unknown>>;
+        api: Record<string, unknown>[];
       };
       expect(raw.api[0].auth).toEqual({ type: 'bearer', token: '${API_TOKEN}' });
       expect(raw.api[0].budgets).toEqual({ duration: { max: 500 } });
@@ -517,16 +517,16 @@ describe('API config', () => {
 
     const [items, health] = resolveApiTargets(config);
 
-    expect(items?.method).toBe('POST');
-    expect(items?.runs).toBe(4);
-    expect(items?.retries).toBe(2);
-    expect(items?.timeoutMs).toBe(30_000);
-    expect(items?.budgets.ttfb).toEqual({ max: 700, regression: 20, severity: 'warn' });
-    expect(items?.budgets.duration).toEqual({ regression: 10 });
-    expect(items?.budgets.bytes?.max).toBe(8 * 1024);
+    expect(items.method).toBe('POST');
+    expect(items.runs).toBe(4);
+    expect(items.retries).toBe(2);
+    expect(items.timeoutMs).toBe(30_000);
+    expect(items.budgets.ttfb).toEqual({ max: 700, regression: 20, severity: 'warn' });
+    expect(items.budgets.duration).toEqual({ regression: 10 });
+    expect(items.budgets.bytes?.max).toBe(8 * 1024);
 
-    expect(health?.method).toBe('GET');
-    expect(health?.runs).toBe(1);
+    expect(health.method).toBe('GET');
+    expect(health.runs).toBe(1);
   });
 
   it('applies a page auth block to the resolved page without changing the URL surface', () => {
@@ -535,7 +535,7 @@ describe('API config', () => {
     });
 
     const [page] = resolveTargets(config);
-    expect(page?.urls).toEqual(['https://example.com/app']);
-    expect(page?.auth).toEqual({ type: 'basic', username: 'u', password: 'p' });
+    expect(page.urls).toEqual(['https://example.com/app']);
+    expect(page.auth).toEqual({ type: 'basic', username: 'u', password: 'p' });
   });
 });

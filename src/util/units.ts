@@ -29,11 +29,13 @@ export function parseDuration(value: unknown): unknown {
   const amount = finite(match[1]);
   if (amount === null) return value;
 
-  switch (match[2]?.toLowerCase()) {
+  const unit = match[2] as string | undefined;
+  switch (unit?.toLowerCase()) {
     case 's':
       return amount * 1000;
     case 'm':
       return amount * 60_000;
+    case undefined:
     default:
       return amount;
   }
@@ -62,7 +64,9 @@ export function parseBytes(value: unknown): unknown {
   const amount = finite(match[1]);
   if (amount === null) return value;
 
-  const multiplier = BYTE_MULTIPLIERS[match[2]?.toLowerCase() ?? 'b'];
+  const unit = match[2] as string | undefined;
+  const key = (unit ?? 'b').toLowerCase();
+  const multiplier = Object.hasOwn(BYTE_MULTIPLIERS, key) ? BYTE_MULTIPLIERS[key] : undefined;
   return multiplier === undefined ? value : amount * multiplier;
 }
 
@@ -75,7 +79,7 @@ export function parsePercent(value: unknown): unknown {
   if (!match) return value;
 
   const amount = finite(match[1]);
-  return amount === null ? value : amount;
+  return amount ?? value;
 }
 
 /** Parse a CLS-style score. Accepts numbers and numeric strings. */
@@ -87,7 +91,7 @@ export function parseScore(value: unknown): unknown {
   if (!match) return value;
 
   const amount = finite(match[1]);
-  return amount === null ? value : amount;
+  return amount ?? value;
 }
 
 /** Parse a request/node count. Accepts numbers and numeric strings. */

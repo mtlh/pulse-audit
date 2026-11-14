@@ -1,4 +1,5 @@
 import lighthouse from 'lighthouse';
+import type * as LighthousePackage from 'lighthouse';
 import { LIGHTHOUSE_VERSION } from './lighthouse-version.js';
 
 /**
@@ -11,4 +12,4 @@ import { LIGHTHOUSE_VERSION } from './lighthouse-version.js';
 export default lighthouse;
 export { defaultConfig } from 'lighthouse';
 export { LIGHTHOUSE_VERSION };
-export type LighthouseModule = typeof import('lighthouse');
+export type LighthouseModule = typeof LighthousePackage;

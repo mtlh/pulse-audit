@@ -53,7 +53,7 @@ function checkNode(): DoctorCheck {
   };
 }
 
-async function checkChrome(): Promise<{ ok: boolean; detail: string; warning?: boolean }> {
+function checkChrome(): { ok: boolean; detail: string; warning?: boolean } {
   const found = findChromeBinary();
   return {
     ok: Boolean(found.path),
@@ -174,7 +174,7 @@ function checkTargets(
     const name = `baseline ${page.preset} ${url}`;
     const entry = baseline.results[key];
 
-    if (!entry) {
+    if (!Object.hasOwn(baseline.results, key)) {
       return { name, status: 'warn', detail: `no baseline entry for ${key}` };
     }
     if (entry.preset !== page.preset || entry.runs !== page.runs) {

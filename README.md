@@ -53,6 +53,7 @@ During development:
 npm run dev -- init https://example.com
 npm run dev -- audit
 npm test
+npm run lint
 npm run typecheck
 ```
 
@@ -417,11 +418,19 @@ the version for review, approve it on npmjs.com and re-run the workflow.
 ## Testing
 
 ```bash
+npm run lint      # strict type-aware ESLint rules
+npm run format:check
+npm run typecheck
 npm test          # unit tests + no-Chrome user flows
 npm run test:e2e  # fixture audits, baseline flow, packed install
 npm run battle-test  # live portfolio sequence
 npm run bench -- --fixture 4 --runs 3 --concurrency 2  # per-phase timings
 ```
+
+`eslint.config.js` enables `typescript-eslint`'s strict type-aware preset plus explicit
+correctness rules: no floating promises, no unsafe `any` flow, exhaustive switches, import
+cycles, atomic async updates and promise-rejection errors. CI runs the same `npm run lint`
+gate as the build and test jobs.
 
 The E2E suite uses a deterministic local fixture (`test/flows/fixture.ts`) with a slow hero
 image, injected layout shift, missing alt text and a 220 KB script. Chrome is required;

@@ -13,7 +13,9 @@ function statusLabel(check: Check): string {
 }
 
 function pad(value: string, width: number): string {
-  // Strip ANSI escapes when measuring width.
+  // Strip ANSI escapes when measuring width. The ESC control character is the
+  // escape sequence's prefix, so this regex must match it.
+  // eslint-disable-next-line no-control-regex
   const visible = value.replace(/\u001b\[[0-9;]*m/g, '');
   return value + ' '.repeat(Math.max(0, width - visible.length));
 }

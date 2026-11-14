@@ -238,10 +238,11 @@ function evaluateBudget(input: BudgetEvaluation): Check {
       ? (delta / baselineValue) * 100
       : undefined;
 
-  const absoluteBreach = rule.max !== undefined && value > rule.max;
-  const regressionEvaluable = rule.regression !== undefined && deltaPct !== undefined;
-  const regressionBreach =
-    rule.regression !== undefined && deltaPct !== undefined && deltaPct > rule.regression;
+  const max = rule.max;
+  const regression = rule.regression;
+  const absoluteBreach = max !== undefined && value > max;
+  const regressionEvaluable = regression !== undefined && deltaPct !== undefined;
+  const regressionBreach = regression !== undefined && deltaPct !== undefined && deltaPct > regression;
   const severity = rule.severity ?? defaultSeverity;
   // In strict mode an absolute budget is a hard ceiling: being better than the
   // baseline does not excuse being over it. Warnings stay warnings.
@@ -255,6 +256,7 @@ function evaluateBudget(input: BudgetEvaluation): Check {
   // inherited debt only ratchets through when the metric did not get worse.
   const improvedOrFlat = delta !== undefined && delta <= 0;
   const ratchetPass =
+    max !== undefined &&
     absoluteBreach &&
     !regressionBreach &&
     baselineValue !== undefined &&
@@ -264,7 +266,7 @@ function evaluateBudget(input: BudgetEvaluation): Check {
     (regressionEvaluable || improvedOrFlat);
   let status: Status = 'pass';
   let reason =
-    rule.max === undefined && !regressionEvaluable
+    max === undefined && !regressionEvaluable
       ? 'no comparable baseline; regression not evaluated'
       : 'within budget';
 
@@ -274,11 +276,11 @@ function evaluateBudget(input: BudgetEvaluation): Check {
       // the PR, but the report still makes the overshoot visible. Warnings stay
       // warnings so noisy metrics remain visible without failing the build.
       status = 'pass';
-      reason = `over max ${formatValue(rule.max!, format)} but not a regression`;
+      reason = `over max ${formatValue(max, format)} but not a regression`;
     } else {
       status = severity === 'warn' ? 'warn' : 'fail';
       const causes: string[] = [];
-      if (absoluteBreach) causes.push(`over max ${formatValue(rule.max!, format)}`);
+      if (absoluteBreach) causes.push(`over max ${formatValue(max, format)}`);
       if (regressionBreach) causes.push(`regressed ${formatPercent(deltaPct)} vs baseline`);
       reason = causes.join(' and ');
     }
@@ -314,7 +316,7 @@ function evaluateMetric(
     metric: metric.key,
     label: metric.label,
     value: current.metrics[metric.key],
-    baselineValue: baseline?.metrics?.[metric.key],
+    baselineValue: baseline?.metrics[metric.key],
     rule,
     format: metric.format,
     defaultSeverity: metric.defaultSeverity,
@@ -412,12 +414,12 @@ export function compareResult(
   return [...metricChecks, ...evaluateA11y(filteredCurrent, filteredBaseline, config)];
 }
 
-const API_METRIC_SPECS: Array<{
+const API_METRIC_SPECS: {
   key: ApiMetricKey;
   label: string;
   format: ValueFormat;
   defaultSeverity: Severity;
-}> = [
+}[] = [
   { key: 'ttfb', label: 'TTFB', format: 'ms', defaultSeverity: 'error' },
   { key: 'duration', label: 'Duration', format: 'ms', defaultSeverity: 'error' },
   { key: 'bytes', label: 'Response size', format: 'bytes', defaultSeverity: 'error' },
@@ -480,7 +482,7 @@ export function compareApiResult(
         metric: metric.key,
         label: metric.label,
         value: current.metrics[metric.key],
-        baselineValue: baseline?.metrics?.[metric.key],
+        baselineValue: baseline?.metrics[metric.key],
         rule,
         format: metric.format,
         defaultSeverity: metric.defaultSeverity,

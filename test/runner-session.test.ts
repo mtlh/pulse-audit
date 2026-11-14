@@ -124,8 +124,8 @@ describe('audit session', () => {
 
     await expect(
       createAuditSession({
-        launchChrome: launchChrome as never,
-        loadLighthouse: loadLighthouse as never,
+        launchChrome: launchChrome,
+        loadLighthouse: loadLighthouse,
       }),
     ).rejects.toThrow('module boom');
 
