@@ -17,6 +17,7 @@ const METRICS: AuditMetrics = {
   images: 30_000,
   total: 120_000,
   requests: 12,
+  failedRequests: 0,
   thirdPartyBytes: 0,
   thirdPartyRequests: 0,
   longTasks: 0,
@@ -148,6 +149,24 @@ describe('renderMarkdown', () => {
     expect(renderMarkdown(busy)).toContain(
       '- **Long tasks**: 3 ≥ 50ms · longest 320ms (https://example.com/app.js)',
     );
+  });
+
+  it('lists up to five failed requests as bullets', () => {
+    const withFailures = report();
+    withFailures.results[0].audit.metrics.failedRequests = 6;
+    withFailures.results[0].audit.failedRequestDetails = Array.from({ length: 6 }, (_, index) => ({
+      url: `https://example.com/missing-${index}.png`,
+      resourceType: 'Image',
+      bytes: 0,
+      thirdParty: false,
+      statusCode: 404,
+      failed: true,
+    }));
+
+    const markdown = renderMarkdown(withFailures);
+    expect(markdown.match(/\*\*Failed request\*\*/g)).toHaveLength(5);
+    expect(markdown).toContain('404 `https://example.com/missing-0.png` (Image)');
+    expect(markdown).not.toContain('missing-5.png');
   });
 
   it('renders API timings in a separate section', () => {

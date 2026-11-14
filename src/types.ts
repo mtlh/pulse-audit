@@ -64,6 +64,7 @@ export interface BudgetSet {
   images?: BudgetRule;
   total?: BudgetRule;
   requests?: BudgetRule;
+  failedRequests?: BudgetRule;
   thirdPartyBytes?: BudgetRule;
   thirdPartyRequests?: BudgetRule;
   longTasks?: BudgetRule;
@@ -151,6 +152,10 @@ export interface RequestSummary {
   resourceType: string;
   bytes: number;
   thirdParty: boolean;
+  /** HTTP status code, when the browser reported one. */
+  statusCode?: number;
+  /** True for a 4xx/5xx response or a transport failure. */
+  failed?: boolean;
 }
 
 export interface LcpElement {
@@ -178,6 +183,7 @@ export interface AuditMetrics {
   images: number;
   total: number;
   requests: number;
+  failedRequests: number;
   thirdPartyBytes: number;
   thirdPartyRequests: number;
   /** Main-thread tasks of at least 50 ms. */
@@ -202,6 +208,8 @@ export interface AuditResult {
   thirdPartyHeaviest?: RequestSummary[];
   /** Top 5 long tasks by duration. */
   longTaskDetails?: LongTaskDetail[];
+  /** Up to 10 requests that returned 4xx/5xx or failed in transport. */
+  failedRequestDetails?: RequestSummary[];
 }
 
 export interface ApiMetrics {

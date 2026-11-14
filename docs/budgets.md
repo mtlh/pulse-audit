@@ -38,6 +38,7 @@ so the config stays valid JSON for editors and review.
 | `images`             | Image transfer bytes           | warn                                 |
 | `total`              | All transfer bytes             | warn                                 |
 | `requests`           | Request count                  | error                                |
+| `failedRequests`     | Failed subresource requests    | error                                |
 | `thirdPartyBytes`    | Third-party transfer bytes     | warn                                 |
 | `thirdPartyRequests` | Third-party request count      | warn                                 |
 | `longTasks`          | Main-thread tasks ≥ 50 ms      | warn                                 |
@@ -45,6 +46,10 @@ so the config stays valid JSON for editors and review.
 
 `max` is compared against the median of the measured runs. The first run is a warm-up and is
 never reported or compared.
+
+`failedRequests` counts subresource requests that returned a 4xx/5xx status or never finished
+(`finished: false`). Redirects (3xx) are not failures. It is a correctness gate rather than a
+performance warning, so it defaults to `error`.
 
 ## Per-URL overrides
 
@@ -165,10 +170,10 @@ stay warnings.
 
 ## Severity
 
-`lcp`, `cls`, `fcp`, `js`, `requests` and accessibility default to `error`. `tbt`, `ttfb`,
-`css`, `fonts`, `images`, `total`, `longTasks` and both third-party metrics default to `warn`
-in the generated config. A failing `warn` check is reported but does not set a non-zero exit
-code unless you run with `--fail-on warn`. Override per rule:
+`lcp`, `cls`, `fcp`, `js`, `requests`, `failedRequests` and accessibility default to `error`.
+`tbt`, `ttfb`, `css`, `fonts`, `images`, `total`, `longTasks` and both third-party metrics
+default to `warn` in the generated config. A failing `warn` check is reported but does not set a
+non-zero exit code unless you run with `--fail-on warn`. Override per rule:
 
 ```json
 { "tbt": { "max": "200ms", "severity": "warn" } }
@@ -231,22 +236,23 @@ cannot disagree.
 applies headroom, so you start from a definition the page can actually hit. Review and
 tighten it once fixes land.
 
-| Metric               | Headroom applied by `init --from`                                                  |
-| -------------------- | ---------------------------------------------------------------------------------- |
-| LCP                  | current + 500 ms (minimum 1000 ms)                                                 |
-| CLS                  | 0.05 (or current + 0.02)                                                           |
-| TBT                  | current + 100 ms (minimum 200 ms), warning                                         |
-| FCP                  | current + 500 ms (minimum 1800 ms)                                                 |
-| TTFB                 | current + 200 ms (minimum 800 ms), warning                                         |
-| JavaScript           | current + 20%, minimum 50 KB                                                       |
-| CSS                  | current + 20%, minimum 100 KB, warning                                             |
-| Fonts                | current + 20%, minimum 300 KB, warning                                             |
-| Images               | current + 20%, minimum 100 KB                                                      |
-| Total                | current + 20%, minimum 1.5 MB, warning                                             |
-| Requests             | current + 10 (minimum 20)                                                          |
-| Third-party bytes    | current + 20%, minimum 300 KB, warning                                             |
-| Third-party requests | current + 10, minimum 20, warning                                                  |
-| Long tasks           | current + 2 (minimum 10), regression 20%, warning                                  |
-| A11y                 | `maxNew: 0`, critical/serious buckets at 0, `maxViolations` equal to today's count |
+| Metric               | Headroom applied by `init --from`                                                         |
+| -------------------- | ----------------------------------------------------------------------------------------- |
+| LCP                  | current + 500 ms (minimum 1000 ms)                                                        |
+| CLS                  | 0.05 (or current + 0.02)                                                                  |
+| TBT                  | current + 100 ms (minimum 200 ms), warning                                                |
+| FCP                  | current + 500 ms (minimum 1800 ms)                                                        |
+| TTFB                 | current + 200 ms (minimum 800 ms), warning                                                |
+| JavaScript           | current + 20%, minimum 50 KB                                                              |
+| CSS                  | current + 20%, minimum 100 KB, warning                                                    |
+| Fonts                | current + 20%, minimum 300 KB, warning                                                    |
+| Images               | current + 20%, minimum 100 KB                                                             |
+| Total                | current + 20%, minimum 1.5 MB, warning                                                    |
+| Requests             | current + 10 (minimum 20)                                                                 |
+| Failed requests      | today's count as `max` with `regression: 0`, so inherited failures pass and new ones fail |
+| Third-party bytes    | current + 20%, minimum 300 KB, warning                                                    |
+| Third-party requests | current + 10, minimum 20, warning                                                         |
+| Long tasks           | current + 2 (minimum 10), regression 20%, warning                                         |
+| A11y                 | `maxNew: 0`, critical/serious buckets at 0, `maxViolations` equal to today's count        |
 
 Tighten after the first fixes land. A budget you cannot hit is a budget people disable.

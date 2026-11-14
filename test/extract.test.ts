@@ -165,6 +165,7 @@ describe('extractResult', () => {
       images: 7000,
       total: 22_000,
       requests: 6,
+      failedRequests: 0,
       thirdPartyBytes: 16_000,
       thirdPartyRequests: 3,
       longTasks: 3,
@@ -212,6 +213,56 @@ describe('extractResult', () => {
       snippet: '<img class="legacy">',
       url: 'https://example.com/legacy.png',
     });
+  });
+
+  it('counts error responses and aborted requests, but not redirects', () => {
+    const raw = lhr();
+    raw.audits['network-requests'].details.items = [
+      { url: 'https://example.com/', resourceType: 'Document', statusCode: 200, finished: true },
+      { url: 'https://example.com/old', resourceType: 'Document', statusCode: 301, finished: true },
+      {
+        url: 'https://example.com/missing.png',
+        resourceType: 'Image',
+        statusCode: 404,
+        finished: true,
+        transferSize: 120,
+      },
+      { url: 'https://api.example.com/data', resourceType: 'Fetch', statusCode: 500, finished: true },
+      { url: 'https://cdn.example.net/tracker', resourceType: 'XHR', finished: false },
+    ];
+
+    const result = extractResult(raw, 'https://example.com/', 'mobile', 3);
+
+    expect(result.metrics.failedRequests).toBe(3);
+    expect(result.failedRequestDetails?.map((request) => request.url)).toEqual([
+      'https://example.com/missing.png',
+      'https://api.example.com/data',
+      'https://cdn.example.net/tracker',
+    ]);
+    expect(result.failedRequestDetails?.[0]).toMatchObject({
+      resourceType: 'Image',
+      statusCode: 404,
+      failed: true,
+    });
+    expect(result.failedRequestDetails?.[1]?.statusCode).toBe(500);
+    expect(result.failedRequestDetails?.[2]?.statusCode).toBeUndefined();
+    expect(result.failedRequestDetails?.[2]?.failed).toBe(true);
+  });
+
+  it('keeps the first 10 failed requests in the detail list', () => {
+    const raw = lhr();
+    raw.audits['network-requests'].details.items = Array.from({ length: 12 }, (_, index) => ({
+      url: `https://example.com/missing-${index}.js`,
+      resourceType: 'Script',
+      statusCode: 404,
+      finished: true,
+    }));
+
+    const result = extractResult(raw, 'https://example.com/', 'mobile', 3);
+
+    expect(result.metrics.failedRequests).toBe(12);
+    expect(result.failedRequestDetails).toHaveLength(10);
+    expect(result.failedRequestDetails?.[9]?.url).toBe('https://example.com/missing-9.js');
   });
 
   it('keeps the heaviest request lists, with third parties sorted separately', () => {
@@ -274,6 +325,7 @@ describe('extractResult', () => {
       images: 0,
       total: 0,
       requests: 0,
+      failedRequests: 0,
       thirdPartyBytes: 0,
       thirdPartyRequests: 0,
       longTasks: 0,

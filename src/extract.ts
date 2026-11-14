@@ -98,12 +98,23 @@ function extractRequests(lhr: Lhr, pageUrl: string): RequestSummary[] {
   const items: any[] = lhr.audits?.['network-requests']?.details?.items ?? [];
   return items
     .filter((item) => typeof item?.url === 'string')
-    .map((item) => ({
-      url: item.url as string,
-      resourceType: (item.resourceType as string) ?? 'Other',
-      bytes: Number(item.transferSize ?? item.resourceSize ?? 0),
-      thirdParty: typeof item.thirdParty === 'boolean' ? item.thirdParty : !sameOrigin(item.url, pageUrl),
-    }));
+    .map((item) => {
+      const statusCode = typeof item.statusCode === 'number' ? item.statusCode : undefined;
+      return {
+        url: item.url as string,
+        resourceType: (item.resourceType as string) ?? 'Other',
+        bytes: Number(item.transferSize ?? item.resourceSize ?? 0),
+        thirdParty: typeof item.thirdParty === 'boolean' ? item.thirdParty : !sameOrigin(item.url, pageUrl),
+        statusCode,
+        // Redirects are not failures; only an error response or a request that
+        // never finished counts as a failed subresource.
+        failed: (statusCode !== undefined && statusCode >= 400) || item.finished === false,
+      };
+    });
+}
+
+function isFailedRequest(request: RequestSummary): boolean {
+  return request.failed === true;
 }
 
 function sumBytes(requests: RequestSummary[], resourceType?: string): number {
@@ -183,6 +194,7 @@ export function extractResult(lhr: Lhr, url: string, preset: Preset, runs: numbe
   const violations = extractViolations(lhr);
   const thirdPartyRequests = requests.filter((request) => request.thirdParty);
   const longTasks = extractLongTasks(lhr);
+  const failedRequests = requests.filter(isFailedRequest);
 
   return {
     url,
@@ -204,6 +216,7 @@ export function extractResult(lhr: Lhr, url: string, preset: Preset, runs: numbe
       images: sumBytes(requests, 'Image'),
       total: sumBytes(requests),
       requests: requests.length,
+      failedRequests: failedRequests.length,
       thirdPartyBytes: sumBytes(thirdPartyRequests),
       thirdPartyRequests: thirdPartyRequests.length,
       longTasks: longTasks.count,
@@ -214,5 +227,6 @@ export function extractResult(lhr: Lhr, url: string, preset: Preset, runs: numbe
     violations,
     thirdPartyHeaviest: [...thirdPartyRequests].sort((a, b) => b.bytes - a.bytes).slice(0, 10),
     ...(longTasks.details.length > 0 ? { longTaskDetails: longTasks.details } : {}),
+    failedRequestDetails: failedRequests.slice(0, 10),
   };
 }

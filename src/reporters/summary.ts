@@ -1,7 +1,7 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
 import { formatDelta, formatPercent, formatValue, noteworthyReason } from '../format.js';
-import type { Check, PulseReport } from '../types.js';
+import type { Check, PulseReport, RequestSummary } from '../types.js';
 import { apiSpreadParts, spreadParts } from './spread.js';
 
 const SUMMARY_START = '<!-- pulse:start -->';
@@ -9,6 +9,12 @@ const SUMMARY_END = '<!-- pulse:end -->';
 
 function spreadLine(parts: string[]): string | undefined {
   return parts.length > 0 ? `**Run spread**: ${parts.join(' · ')}` : undefined;
+}
+
+function failedRequestBullet(request: RequestSummary): string {
+  const status =
+    request.statusCode !== undefined && request.statusCode >= 400 ? String(request.statusCode) : 'aborted';
+  return `- **Failed request**: ${status} \`${request.url}\` (${request.resourceType})`;
 }
 
 function checkTable(checks: Check[]): string[] {
@@ -46,6 +52,10 @@ export function renderMarkdown(report: PulseReport): string {
       .map((check) => ({ label: check.label, reason: noteworthyReason(check) }))
       .filter((note): note is { label: string; reason: string } => note.reason !== undefined);
     for (const note of notes) lines.push('', `- **${note.label}**: ${note.reason}`);
+
+    for (const request of (entry.audit.failedRequestDetails ?? []).slice(0, 5)) {
+      lines.push('', failedRequestBullet(request));
+    }
 
     if (entry.ignoredRules && entry.ignoredRules.length > 0) {
       lines.push(

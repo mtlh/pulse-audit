@@ -25,6 +25,7 @@ function metrics(overrides: Partial<AuditMetrics> = {}): AuditMetrics {
     images: 200_000,
     total: 400_000,
     requests: 3,
+    failedRequests: 0,
     thirdPartyBytes: 0,
     thirdPartyRequests: 0,
     longTasks: 0,
@@ -57,6 +58,7 @@ describe('config', () => {
     expect(parsed.report.outDir).toBe('.pulse');
     expect(parsed.budgets.lcp?.max).toBe(2500);
     expect(parsed.budgets.fcp?.max).toBe(1800);
+    expect(parsed.budgets.failedRequests).toEqual({ max: 0, regression: 0 });
     expect(parsed.budgets.thirdPartyRequests?.max).toBe(20);
     expect(parsed.budgets.longTasks).toEqual({ max: 10, regression: 20, severity: 'warn' });
     expect(parsed.budgets.a11y?.maxNewByImpact).toEqual({ critical: 0, serious: 0 });
@@ -110,6 +112,7 @@ describe('config', () => {
         total: { max: '1.5mb' },
         requests: { max: '90', regression: '10%' },
         longTasks: { max: '12' },
+        failedRequests: { max: '2', regression: '0%' },
       },
     });
 
@@ -119,11 +122,28 @@ describe('config', () => {
     expect(parsed.budgets.requests?.max).toBe(90);
     expect(parsed.budgets.requests?.regression).toBe(10);
     expect(parsed.budgets.longTasks?.max).toBe(12);
+    expect(parsed.budgets.failedRequests).toEqual({ max: 2, regression: 0 });
   });
 
   it('rejects an unbounded retry count', () => {
     expect(configSchema.safeParse({ urls: ['https://example.com/'], retries: 10 }).success).toBe(true);
     expect(configSchema.safeParse({ urls: ['https://example.com/'], retries: 11 }).success).toBe(false);
+  });
+
+  it('accepts a failedRequests count budget and rejects negative counts', () => {
+    expect(
+      configSchema.safeParse({
+        urls: ['https://example.com/'],
+        budgets: { failedRequests: { max: 0, regression: 0 } },
+      }).success,
+    ).toBe(true);
+
+    expect(
+      configSchema.safeParse({
+        urls: ['https://example.com/'],
+        budgets: { failedRequests: { max: -1 } },
+      }).success,
+    ).toBe(false);
   });
 
   it('rejects a metric rule with neither max nor regression', () => {
@@ -234,6 +254,7 @@ describe('budgetsFromResult', () => {
     expect(budgets.images?.max).toBe(240640);
     expect(budgets.total?.max).toBe(1_572_864);
     expect(budgets.requests?.max).toBe(20);
+    expect(budgets.failedRequests).toEqual({ max: 0, regression: 0 });
     expect(budgets.thirdPartyBytes).toEqual({ max: 0, regression: 10, severity: 'warn' });
     expect(budgets.thirdPartyRequests).toEqual({ max: 0, regression: 10, severity: 'warn' });
     expect(budgets.longTasks).toEqual({ max: 10, regression: 20, severity: 'warn' });
@@ -274,6 +295,11 @@ describe('budgetsFromResult', () => {
     expect(quiet.longTasks).toEqual({ max: 10, regression: 20, severity: 'warn' });
   });
 
+  it('uses the measured failed request count as the ceiling and gates new ones', () => {
+    const budgets = budgetsFromResult(result({ failedRequests: 2 }));
+    expect(budgets.failedRequests).toEqual({ max: 2, regression: 0 });
+  });
+
   it('keeps floors so a tiny page does not get an unhittable budget', () => {
     const budgets = budgetsFromResult(
       result({
@@ -299,6 +325,7 @@ describe('budgetsFromResult', () => {
     expect(budgets.images?.max).toBe(100_000);
     expect(budgets.total?.max).toBe(1_572_864);
     expect(budgets.requests?.max).toBe(20);
+    expect(budgets.failedRequests).toEqual({ max: 0, regression: 0 });
     expect(budgets.a11y?.maxViolations).toBe(0);
   });
 });

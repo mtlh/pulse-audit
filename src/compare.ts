@@ -35,6 +35,7 @@ const METRIC_SPECS: MetricSpec[] = [
   { key: 'images', label: 'Images', format: 'bytes', defaultSeverity: 'warn' },
   { key: 'total', label: 'Total weight', format: 'bytes', defaultSeverity: 'warn' },
   { key: 'requests', label: 'Requests', format: 'count', defaultSeverity: 'error' },
+  { key: 'failedRequests', label: 'Failed requests', format: 'count', defaultSeverity: 'error' },
   { key: 'thirdPartyBytes', label: 'Third-party bytes', format: 'bytes', defaultSeverity: 'warn' },
   { key: 'thirdPartyRequests', label: 'Third-party requests', format: 'count', defaultSeverity: 'warn' },
   { key: 'longTasks', label: 'Long tasks', format: 'count', defaultSeverity: 'warn' },

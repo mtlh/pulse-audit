@@ -129,6 +129,48 @@ function renderRequests(entry: ReportEntry): string {
   </section>`;
 }
 
+function failedStatusLabel(request: RequestSummary): string {
+  if (request.statusCode !== undefined && request.statusCode >= 400) return String(request.statusCode);
+  return 'aborted';
+}
+
+function renderFailedRequests(entry: ReportEntry): string {
+  const count = entry.audit.metrics.failedRequests;
+  if (count <= 0) return '';
+
+  const requests = entry.audit.failedRequestDetails ?? [];
+  const summary = `${count} request${count === 1 ? '' : 's'}`;
+
+  if (requests.length === 0) {
+    return `<section class="card"><h3>Failed requests <span class="muted">${summary}</span></h3><p class="muted">Per-request detail was not captured.</p></section>`;
+  }
+
+  const items = requests
+    .map((request) => {
+      let label = request.url;
+      try {
+        const parsed = new URL(request.url);
+        label = `${parsed.hostname}${parsed.pathname}`;
+      } catch {
+        // keep the raw url
+      }
+      return `<li class="req">
+        <div class="req-top">
+          <span class="req-url" title="${escapeHtml(request.url)}">${escapeHtml(label)}</span>
+          <span class="req-meta"><span class="req-fail">${escapeHtml(
+            failedStatusLabel(request),
+          )}</span> · ${escapeHtml(request.resourceType)}</span>
+        </div>
+      </li>`;
+    })
+    .join('');
+
+  return `<section class="card">
+    <h3>Failed requests <span class="muted">${summary}</span></h3>
+    <ul class="reqs">${items}</ul>
+  </section>`;
+}
+
 function renderThirdParty(entry: ReportEntry): string {
   const requests = entry.audit.thirdPartyHeaviest ?? [];
   const bytes = entry.audit.metrics.thirdPartyBytes;
@@ -288,7 +330,12 @@ function renderLongTasks(entry: ReportEntry): string {
 }
 
 function renderExtras(entry: ReportEntry): string {
-  const cards = [renderVariance(entry), renderLongTasks(entry), renderThirdParty(entry)].filter(Boolean);
+  const cards = [
+    renderFailedRequests(entry),
+    renderVariance(entry),
+    renderLongTasks(entry),
+    renderThirdParty(entry),
+  ].filter(Boolean);
   if (cards.length === 0) return '';
   return `<div class="extras">${cards.join('')}</div>`;
 }
@@ -516,6 +563,7 @@ export function renderHtml(report: PulseReport): string {
   .req-url { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .req-meta { color: var(--muted); white-space: nowrap; }
   .third { color: var(--warn); }
+  .req-fail { color: var(--fail); font-weight: 700; }
   .bar { height: 5px; background: var(--bar); border-radius: 999px; overflow: hidden; }
   .bar span { display: block; height: 100%; background: var(--accent); border-radius: 999px; }
   .ok { color: var(--pass); margin: 0; }

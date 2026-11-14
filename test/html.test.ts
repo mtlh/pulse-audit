@@ -24,6 +24,7 @@ const BASE_METRICS: AuditMetrics = {
   images: 30_000,
   total: 120_000,
   requests: 12,
+  failedRequests: 0,
   thirdPartyBytes: 5120,
   thirdPartyRequests: 2,
   longTasks: 2,
@@ -266,6 +267,64 @@ describe('renderHtml', () => {
 
     expect(html).toContain('Third-party requests');
     expect(html).toContain('5.0 KB from third-party origins; per-request detail was not captured.');
+  });
+
+  it('renders a failed requests card with status, url and resource type', () => {
+    const withFailures = audit({
+      metrics: metrics({ failedRequests: 3 }),
+      failedRequestDetails: [
+        {
+          url: `https://example.com/${evil}`,
+          resourceType: 'Image',
+          bytes: 10,
+          thirdParty: false,
+          statusCode: 404,
+          failed: true,
+        },
+        {
+          url: 'https://api.example.com/data',
+          resourceType: 'Fetch',
+          bytes: 0,
+          thirdParty: false,
+          statusCode: 500,
+          failed: true,
+        },
+        {
+          url: 'https://cdn.example.net/aborted.js',
+          resourceType: 'Script',
+          bytes: 0,
+          thirdParty: true,
+          failed: true,
+        },
+      ],
+    });
+    const html = renderHtml(report({ results: [entry({ audit: withFailures })] }));
+
+    expect(html).toContain('Failed requests');
+    expect(html).toContain('3 requests');
+    expect(html).toContain('404');
+    expect(html).toContain('api.example.com/data');
+    expect(html).toContain('Fetch');
+    expect(html).toContain('aborted');
+    expect(html).not.toContain('<script>window.pwned');
+  });
+
+  it('omits the failed requests card when nothing failed', () => {
+    const html = renderHtml(report());
+
+    expect(html).not.toContain('Failed requests');
+  });
+
+  it('notes when failed requests exist without per-request detail', () => {
+    const withCountOnly = audit({
+      metrics: metrics({ failedRequests: 2 }),
+      failedRequestDetails: [],
+    });
+    const html = renderHtml(report({ results: [entry({ audit: withCountOnly })] }));
+
+    expect(html).toContain('Failed requests');
+    expect(html).toContain('2 requests');
+    expect(html).toContain('Per-request detail was not captured.');
   });
 
   it('shows accessibility impact counts in the card heading', () => {

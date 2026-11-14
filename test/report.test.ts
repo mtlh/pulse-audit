@@ -29,6 +29,7 @@ const METRICS: AuditMetrics = {
   images: 100_000,
   total: 500_000,
   requests: 20,
+  failedRequests: 0,
   thirdPartyBytes: 10_000,
   thirdPartyRequests: 5,
   longTasks: 2,
