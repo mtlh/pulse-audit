@@ -1,32 +1,12 @@
+import { AUDIT_METRIC_KEYS, type AuditMetricKey } from '../metrics.js';
 import type { AuditMetrics } from '../types.js';
 import { median } from './median.js';
 
 /**
- * Every numeric metric, in report order. Kept as a tuple so reporters and the
- * runner can iterate it without open-coding the metric names again.
+ * Every numeric metric, in report order. Re-exported from the metric registry so
+ * the runner and reporters cannot drift from the comparison labels.
  */
-export const AUDIT_METRIC_KEYS = [
-  'lcp',
-  'cls',
-  'tbt',
-  'fcp',
-  'ttfb',
-  'js',
-  'css',
-  'fonts',
-  'images',
-  'total',
-  'requests',
-  'failedRequests',
-  'thirdPartyBytes',
-  'thirdPartyRequests',
-  'longTasks',
-  'thirdPartyMainThread',
-  'consoleErrors',
-  'violations',
-] as const satisfies readonly (keyof AuditMetrics)[];
-
-export type AuditMetricKey = (typeof AUDIT_METRIC_KEYS)[number];
+export { AUDIT_METRIC_KEYS, type AuditMetricKey };
 
 export interface MetricStat {
   min: number;

@@ -15,6 +15,7 @@ import type {
 } from './types.js';
 import { mapWithConcurrency } from './scheduler.js';
 import { DEFAULT_TIMEOUT_MS, WARMUP_TIMEOUT_MS } from './util/defaults.js';
+import { errorMessage } from './util/errors.js';
 import { median } from './util/median.js';
 import { AUDIT_METRIC_KEYS } from './util/variance.js';
 
@@ -374,8 +375,9 @@ async function measureOnce(
     }
   }
 
-  const message = lastError instanceof Error ? lastError.message : String(lastError);
-  throw new Error(`Audit failed for ${url} on run ${runLabel} after ${retries + 1} attempt(s): ${message}`);
+  throw new Error(
+    `Audit failed for ${url} on run ${runLabel} after ${retries + 1} attempt(s): ${errorMessage(lastError)}`,
+  );
 }
 
 async function measureTarget(
@@ -466,9 +468,8 @@ export async function createAuditSession(deps: AuditSessionDeps = {}): Promise<A
   // larger of the two, so the Chrome launch is effectively free.
   const [chromeResult, lighthouseResult] = await Promise.allSettled([
     launch(binary.path).catch((error: unknown) => {
-      const message = error instanceof Error ? error.message : String(error);
       const context = binary.wsl ? ' WSL tip: install Chrome for Linux inside the distro.' : '';
-      throw new Error(`Could not launch Chrome at ${binary.path}.${context} ${message}`);
+      throw new Error(`Could not launch Chrome at ${binary.path}.${context} ${errorMessage(error)}`);
     }),
     importLighthouse(),
   ]);
@@ -519,10 +520,6 @@ type WorkerMessage =
 function workerEntry(): URL {
   const here = new URL(import.meta.url);
   return new URL(here.pathname.endsWith('.ts') ? './audit-worker.ts' : './audit-worker.js', here);
-}
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }
 
 /**

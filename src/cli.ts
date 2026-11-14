@@ -3,11 +3,13 @@ import { access, appendFile } from 'node:fs/promises';
 import { Command } from 'commander';
 import pc from 'picocolors';
 import type { DoctorCheck } from './doctor.js';
-import type { ValueFormat } from './format.js';
 import type { ApiReportInput, ReportInput } from './report.js';
 import type { AuditProgressEvent, AuditSession, AuditTargetSpec } from './runner.js';
 import type { Preset, PulseConfig, WarmupMode } from './types.js';
+import { DEFAULT_TIMEOUT_MS } from './util/defaults.js';
+import { errorMessage } from './util/errors.js';
 import { eventLoopDrains, flushStream } from './util/exit.js';
+import { padRight } from './util/text.js';
 import { VERSION } from './version.js';
 
 type FailOn = 'error' | 'warn' | 'none';
@@ -92,12 +94,8 @@ function parseFailOn(value: string | undefined, noFail: boolean | undefined): Fa
   return value;
 }
 
-function pad(value: string, width: number): string {
-  return value + ' '.repeat(Math.max(0, width - value.length));
-}
-
 function metricRow(label: string, measured: string, budget: string): string {
-  return `  ${pad(label, 22)}${pad(measured, 12)}${budget}`;
+  return `  ${padRight(label, 22)}${padRight(measured, 12)}${budget}`;
 }
 
 function formatElapsed(durationMs: number | undefined): string {
@@ -148,6 +146,7 @@ program
 
     const { budgetsFromResult, configSchema, defaultConfig, writeConfig } = await import('./config.js');
     const { formatValue } = await import('./format.js');
+    const { AUDIT_METRICS, A11Y_METRIC_LABEL } = await import('./metrics.js');
     const { runAudit } = await import('./runner.js');
 
     let config = configSchema.parse(defaultConfig(list)) as PulseConfig;
@@ -164,43 +163,19 @@ program
 
       const budgets = config.budgets;
       const metrics = measured.metrics;
-      const rows: Array<{
-        label: string;
-        value: number;
-        max: number | undefined;
-        format: ValueFormat;
-      }> = [
-        { label: 'LCP', value: metrics.lcp, max: budgets.lcp?.max, format: 'ms' },
-        { label: 'CLS', value: metrics.cls, max: budgets.cls?.max, format: 'score' },
-        { label: 'TBT', value: metrics.tbt, max: budgets.tbt?.max, format: 'ms' },
-        { label: 'FCP', value: metrics.fcp, max: budgets.fcp?.max, format: 'ms' },
-        { label: 'TTFB', value: metrics.ttfb, max: budgets.ttfb?.max, format: 'ms' },
-        { label: 'JavaScript', value: metrics.js, max: budgets.js?.max, format: 'bytes' },
-        { label: 'CSS', value: metrics.css, max: budgets.css?.max, format: 'bytes' },
-        { label: 'Fonts', value: metrics.fonts, max: budgets.fonts?.max, format: 'bytes' },
-        { label: 'Images', value: metrics.images, max: budgets.images?.max, format: 'bytes' },
-        { label: 'Total', value: metrics.total, max: budgets.total?.max, format: 'bytes' },
-        { label: 'Requests', value: metrics.requests, max: budgets.requests?.max, format: 'count' },
+      const rows = [
+        ...AUDIT_METRICS.map((metric) => ({
+          label: metric.label,
+          value: metrics[metric.key],
+          max: budgets[metric.key]?.max,
+          format: metric.format,
+        })),
         {
-          label: 'Third-party bytes',
-          value: metrics.thirdPartyBytes,
-          max: budgets.thirdPartyBytes?.max,
-          format: 'bytes',
+          label: A11Y_METRIC_LABEL,
+          value: metrics.violations,
+          max: budgets.a11y?.maxViolations,
+          format: 'count' as const,
         },
-        {
-          label: 'Third-party requests',
-          value: metrics.thirdPartyRequests,
-          max: budgets.thirdPartyRequests?.max,
-          format: 'count',
-        },
-        { label: 'Long tasks', value: metrics.longTasks, max: budgets.longTasks?.max, format: 'count' },
-        {
-          label: 'Third-party main thread',
-          value: metrics.thirdPartyMainThread,
-          max: budgets.thirdPartyMainThread?.max,
-          format: 'ms',
-        },
-        { label: 'A11y nodes', value: metrics.violations, max: budgets.a11y?.maxViolations, format: 'count' },
       ];
 
       console.error(
@@ -209,7 +184,7 @@ program
         ),
       );
       console.log('');
-      console.log(pc.dim(`  ${pad('metric', 22)}${pad('measured', 12)}budget`));
+      console.log(pc.dim(`  ${padRight('metric', 22)}${padRight('measured', 12)}budget`));
       for (const row of rows) {
         console.log(
           metricRow(row.label, formatValue(row.value, row.format), formatValue(row.max ?? 0, row.format)),
@@ -417,7 +392,7 @@ program
                 url: pageUrl,
                 chromePort: session.port,
                 auth: page.auth,
-                timeoutMs: page.timeoutMs ?? config.timeoutMs ?? 45_000,
+                timeoutMs: page.timeoutMs ?? config.timeoutMs ?? DEFAULT_TIMEOUT_MS,
               });
               const decision = decideFastPath({
                 measurement: precheck.measurement,
@@ -444,8 +419,9 @@ program
                 `fast pre-check for ${pageUrl} escalated to Lighthouse: ${decision.reasons.join('; ')}`,
               );
             } catch (error) {
-              const message = error instanceof Error ? error.message : String(error);
-              progress(`fast pre-check for ${pageUrl} failed (${message}); falling back to Lighthouse`);
+              progress(
+                `fast pre-check for ${pageUrl} failed (${errorMessage(error)}); falling back to Lighthouse`,
+              );
             }
 
             const result = await session.auditTarget(pageUrl, {
@@ -476,8 +452,7 @@ program
             try {
               session = await createAuditSession();
             } catch (error) {
-              const message = error instanceof Error ? error.message : String(error);
-              for (const page of pages) errors.push({ url: targetUrl(page), message });
+              for (const page of pages) errors.push({ url: targetUrl(page), message: errorMessage(error) });
             }
           }
 
@@ -557,7 +532,7 @@ program
         } catch (error) {
           errors.push({
             url: label,
-            message: error instanceof Error ? error.message : String(error),
+            message: errorMessage(error),
           });
         }
       }
@@ -671,11 +646,11 @@ baselineCommand
     for (const [key, result] of entries) {
       const lcp = typeof result.metrics?.lcp === 'number' ? formatValue(result.metrics.lcp, 'ms') : '—';
       console.log(pc.bold(result.url ?? key));
-      console.log(`  ${pad('preset', 12)}${result.preset ?? '—'}`);
-      console.log(`  ${pad('capturedAt', 12)}${result.capturedAt ?? '—'}`);
-      console.log(`  ${pad('runs', 12)}${result.runs ?? '—'}`);
-      console.log(`  ${pad('LCP', 12)}${lcp}`);
-      console.log(`  ${pad('Lighthouse', 12)}${result.lighthouseVersion ?? 'unknown'}`);
+      console.log(`  ${padRight('preset', 12)}${result.preset ?? '—'}`);
+      console.log(`  ${padRight('capturedAt', 12)}${result.capturedAt ?? '—'}`);
+      console.log(`  ${padRight('runs', 12)}${result.runs ?? '—'}`);
+      console.log(`  ${padRight('LCP', 12)}${lcp}`);
+      console.log(`  ${padRight('Lighthouse', 12)}${result.lighthouseVersion ?? 'unknown'}`);
       console.log('');
     }
 
@@ -686,13 +661,13 @@ baselineCommand
       const bytes =
         typeof result.metrics?.bytes === 'number' ? formatValue(result.metrics.bytes, 'bytes') : '—';
       console.log(pc.bold(`${result.method ?? 'GET'} ${result.url ?? key}`));
-      console.log(`  ${pad('method', 12)}${result.method ?? 'GET'}`);
-      console.log(`  ${pad('capturedAt', 12)}${result.capturedAt ?? '—'}`);
-      console.log(`  ${pad('runs', 12)}${result.runs ?? '—'}`);
-      console.log(`  ${pad('status', 12)}${result.metrics?.status ?? '—'}`);
-      console.log(`  ${pad('TTFB', 12)}${ttfb}`);
-      console.log(`  ${pad('duration', 12)}${duration}`);
-      console.log(`  ${pad('bytes', 12)}${bytes}`);
+      console.log(`  ${padRight('method', 12)}${result.method ?? 'GET'}`);
+      console.log(`  ${padRight('capturedAt', 12)}${result.capturedAt ?? '—'}`);
+      console.log(`  ${padRight('runs', 12)}${result.runs ?? '—'}`);
+      console.log(`  ${padRight('status', 12)}${result.metrics?.status ?? '—'}`);
+      console.log(`  ${padRight('TTFB', 12)}${ttfb}`);
+      console.log(`  ${padRight('duration', 12)}${duration}`);
+      console.log(`  ${padRight('bytes', 12)}${bytes}`);
       console.log('');
     }
   });
@@ -761,7 +736,7 @@ program
     };
 
     for (const check of result.checks) {
-      console.log(`${marker[check.status]} ${pad(check.name, 28)} ${pc.dim(check.detail)}`);
+      console.log(`${marker[check.status]} ${padRight(check.name, 28)} ${pc.dim(check.detail)}`);
     }
 
     if (!result.ok) {

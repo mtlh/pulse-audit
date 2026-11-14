@@ -1,12 +1,11 @@
 import { formatDelta, formatPercent, formatValue, type ValueFormat } from './format.js';
+import { API_METRICS, AUDIT_METRICS, budgetRuleConfigured, type AuditMetricDefinition } from './metrics.js';
 import type {
   A11yImpact,
   A11yNode,
   A11yViolation,
   ApiBudgetSet,
-  ApiMetricKey,
   ApiResult,
-  AuditMetrics,
   AuditResult,
   BudgetRule,
   Check,
@@ -15,38 +14,6 @@ import type {
   Status,
 } from './types.js';
 import { IMPACT_ORDER } from './util/a11y.js';
-
-interface MetricSpec {
-  key: Exclude<keyof AuditMetrics, 'violations'>;
-  label: string;
-  format: ValueFormat;
-  defaultSeverity: Severity;
-}
-
-const METRIC_SPECS: MetricSpec[] = [
-  { key: 'lcp', label: 'LCP', format: 'ms', defaultSeverity: 'error' },
-  { key: 'cls', label: 'CLS', format: 'score', defaultSeverity: 'error' },
-  { key: 'tbt', label: 'TBT', format: 'ms', defaultSeverity: 'warn' },
-  { key: 'fcp', label: 'FCP', format: 'ms', defaultSeverity: 'error' },
-  { key: 'ttfb', label: 'TTFB', format: 'ms', defaultSeverity: 'warn' },
-  { key: 'js', label: 'JavaScript', format: 'bytes', defaultSeverity: 'error' },
-  { key: 'css', label: 'CSS', format: 'bytes', defaultSeverity: 'warn' },
-  { key: 'fonts', label: 'Fonts', format: 'bytes', defaultSeverity: 'warn' },
-  { key: 'images', label: 'Images', format: 'bytes', defaultSeverity: 'warn' },
-  { key: 'total', label: 'Total weight', format: 'bytes', defaultSeverity: 'warn' },
-  { key: 'requests', label: 'Requests', format: 'count', defaultSeverity: 'error' },
-  { key: 'failedRequests', label: 'Failed requests', format: 'count', defaultSeverity: 'error' },
-  { key: 'thirdPartyBytes', label: 'Third-party bytes', format: 'bytes', defaultSeverity: 'warn' },
-  { key: 'thirdPartyRequests', label: 'Third-party requests', format: 'count', defaultSeverity: 'warn' },
-  { key: 'longTasks', label: 'Long tasks', format: 'count', defaultSeverity: 'warn' },
-  {
-    key: 'thirdPartyMainThread',
-    label: 'Third-party main thread',
-    format: 'ms',
-    defaultSeverity: 'warn',
-  },
-  { key: 'consoleErrors', label: 'Console errors', format: 'count', defaultSeverity: 'error' },
-];
 
 function normalizeText(value: string | undefined): string {
   return (value ?? '').replace(/\s+/g, ' ').trim();
@@ -302,13 +269,13 @@ function evaluateBudget(input: BudgetEvaluation): Check {
 }
 
 function evaluateMetric(
-  metric: MetricSpec,
+  metric: AuditMetricDefinition,
   current: AuditResult,
   baseline: AuditResult | null,
   config: PulseConfig,
 ): Check | null {
   const rule = config.budgets[metric.key];
-  if (!rule || (rule.max === undefined && rule.regression === undefined)) return null;
+  if (!budgetRuleConfigured(rule)) return null;
 
   return evaluateBudget({
     metric: metric.key,
@@ -405,23 +372,12 @@ export function compareResult(
   const filteredCurrent = filterIgnoredViolations(current, ignoreRules);
   const filteredBaseline = baseline ? filterIgnoredViolations(baseline, ignoreRules) : null;
 
-  const metricChecks = METRIC_SPECS.map((metric) =>
+  const metricChecks = AUDIT_METRICS.map((metric) =>
     evaluateMetric(metric, filteredCurrent, filteredBaseline, config),
   ).filter((check): check is Check => check !== null);
 
   return [...metricChecks, ...evaluateA11y(filteredCurrent, filteredBaseline, config)];
 }
-
-const API_METRIC_SPECS: Array<{
-  key: ApiMetricKey;
-  label: string;
-  format: ValueFormat;
-  defaultSeverity: Severity;
-}> = [
-  { key: 'ttfb', label: 'TTFB', format: 'ms', defaultSeverity: 'error' },
-  { key: 'duration', label: 'Duration', format: 'ms', defaultSeverity: 'error' },
-  { key: 'bytes', label: 'Response size', format: 'bytes', defaultSeverity: 'error' },
-];
 
 export interface ApiCompareOptions {
   budgets: ApiBudgetSet;
@@ -471,9 +427,9 @@ export function compareApiResult(
 ): Check[] {
   const checks: Check[] = [];
 
-  for (const metric of API_METRIC_SPECS) {
+  for (const metric of API_METRICS) {
     const rule = options.budgets[metric.key];
-    if (!rule || (rule.max === undefined && rule.regression === undefined)) continue;
+    if (!budgetRuleConfigured(rule)) continue;
 
     checks.push(
       evaluateBudget({

@@ -12,6 +12,26 @@ to verify it.
 
 ---
 
+## Shared components refactor
+
+The metric list, labels, formats, unit parsers and `--fast` classification now live in one
+registry (`src/metrics.ts`). The page and API budget schemas, comparison loop, run variance,
+`init` table and fast-path lanes all derive from it. Every reporter renders through
+`src/checks.ts` (`checkView`, `checkNotes`, `countChecks`), so the terminal, Markdown and HTML
+output cannot disagree about a value, budget or note.
+
+Shared runtime helpers replaced the repeated copies: `util/errors.ts` (`errorMessage`,
+`isEnoent`), `util/files.ts` (text/JSON read/write with parent directories and a trailing
+newline), `util/guards.ts` (`isRecord`), `util/requests.ts` (`sameOrigin`,
+`sumRequestBytes`), `util/text.ts` (`padRight`, `truncate`). `docs/architecture.md` records the
+module boundaries and the checklist for adding a metric. No CLI, config or report-schema
+behaviour changed.
+
+Verification: `npm run typecheck`, `npx vitest run` (264 passed, 14 skipped),
+`PULSE_E2E=1 npm run test:flows` (23 passed, 1 skipped).
+
+---
+
 ## Performance pass - Chrome reuse, concurrency, `--fast`
 
 Measured baseline: one Lighthouse run on a trivial local page took 4.5-6.2 s; a full 3-run

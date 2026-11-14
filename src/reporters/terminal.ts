@@ -1,6 +1,8 @@
 import pc from 'picocolors';
-import { formatDelta, formatPercent, formatValue, noteworthyReason } from '../format.js';
+import { checkViews } from '../checks.js';
+import { formatValue } from '../format.js';
 import type { ApiReportEntry, Check, PulseReport, ReportEntry } from '../types.js';
+import { padRight, truncate } from '../util/text.js';
 import { apiSpreadParts, spreadParts } from './spread.js';
 
 const SPREAD_PREFIX = '  spread   ';
@@ -12,40 +14,28 @@ function statusLabel(check: Check): string {
   return pc.green('pass');
 }
 
-function pad(value: string, width: number): string {
-  // Strip ANSI escapes when measuring width.
-  const visible = value.replace(/\u001b\[[0-9;]*m/g, '');
-  return value + ' '.repeat(Math.max(0, width - visible.length));
-}
-
 function spreadLine(parts: string[]): string | undefined {
   if (parts.length === 0) return undefined;
-
-  const line = `${SPREAD_PREFIX}${parts.join(' · ')}`;
-  if (line.length <= SPREAD_WIDTH) return line;
-  return `${line.slice(0, SPREAD_WIDTH - 1).trimEnd()}…`;
+  return truncate(`${SPREAD_PREFIX}${parts.join(' · ')}`, SPREAD_WIDTH);
 }
 
 function printChecks(checks: Check[]): void {
+  const views = checkViews(checks);
   console.log(
-    pc.dim(`${pad('  metric', 24)}${pad('result', 12)}${pad('delta', 16)}${pad('budget', 12)}status`),
+    pc.dim(
+      `${padRight('  metric', 24)}${padRight('result', 12)}${padRight('delta', 16)}${padRight('budget', 12)}status`,
+    ),
   );
 
-  for (const check of checks) {
-    const delta =
-      check.delta === undefined
-        ? '—'
-        : `${formatDelta(check.delta, check.format)} (${formatPercent(check.deltaPct)})`;
-    const budget = check.max === undefined ? '—' : formatValue(check.max, check.format);
+  for (const view of views) {
     console.log(
-      pad(`  ${check.label}`, 24) +
-        pad(check.formatted, 12) +
-        pad(delta, 16) +
-        pad(budget, 12) +
-        statusLabel(check),
+      padRight(`  ${view.label}`, 24) +
+        padRight(view.value, 12) +
+        padRight(view.deltaSummary, 16) +
+        padRight(view.budget, 12) +
+        statusLabel(view.check),
     );
-    const note = noteworthyReason(check);
-    if (note) console.log(pc.dim(`      ↳ ${note}`));
+    if (view.note) console.log(pc.dim(`      ↳ ${view.note}`));
   }
 }
 

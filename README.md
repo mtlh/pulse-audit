@@ -431,6 +431,13 @@ multi-URL concurrency and the `--fast` escalation path. `npm run battle-test` wr
 result. Benchmark the local fixture with `npx tsx scripts/bench.mjs --fixture 4` or point it at
 a URL/config with `--url` / `--config`.
 
+## Architecture
+
+The metric list, budget schema, labels, formatting and fast-path classification all derive
+from one registry (`src/metrics.ts`), and every reporter renders through the shared
+`CheckView` (`src/checks.ts`). See [docs/architecture.md](docs/architecture.md) for the
+module boundaries and the checklist for adding a metric.
+
 ## Layout
 
 ```
@@ -439,6 +446,8 @@ src/
   doctor.ts         environment and project checks
   chrome.ts         Chrome/WSL detection and fallbacks
   version.ts        version read from package.json
+  metrics.ts        metric registry: keys, labels, formats, parsers, fast lanes
+  checks.ts         check presentation shared by every reporter
   config.ts         zod schema, units, defaults and per-URL resolution
   auth.ts           ${ENV_VAR} expansion, bearer/basic headers
   runner.ts         chrome-launcher + Lighthouse, audit session, worker lanes, median of N
@@ -452,7 +461,7 @@ src/
   baseline.ts       baseline read/write/migration, comparability
   format.ts         value formatting and HTML escaping
   reporters/        terminal, JSON, Markdown, self-contained HTML, shared spread
-  util/             units, median, variance and impact ordering
+  util/             files, errors, guards, requests, text, units, median, variance, a11y
 test/               unit tests + CLI/user flows
 ```
 

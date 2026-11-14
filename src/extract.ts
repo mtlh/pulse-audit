@@ -1,4 +1,5 @@
 import { countViolationNodes } from './compare.js';
+import { auditMetrics } from './metrics.js';
 import type {
   A11yImpact,
   A11yNode,
@@ -11,7 +12,8 @@ import type {
   RequestSummary,
   ThirdPartyCpu,
 } from './types.js';
-import { IMPACT_ORDER } from './util/a11y.js';
+import { IMPACT_ORDER, isA11yImpact } from './util/a11y.js';
+import { sameOrigin, sumRequestBytes } from './util/requests.js';
 
 /**
  * Lighthouse's LHR is enormous and changes shape between minor versions.
@@ -20,9 +22,7 @@ import { IMPACT_ORDER } from './util/a11y.js';
  */
 type Lhr = Record<string, any>;
 
-export function isA11yImpact(value: unknown): value is A11yImpact {
-  return value === 'critical' || value === 'serious' || value === 'moderate' || value === 'minor';
-}
+export { isA11yImpact };
 
 /** Worst (most severe) impact, defaulting to `serious` like axe/Lighthouse. */
 export function worstImpact(impacts: Array<A11yImpact | undefined>): A11yImpact {
@@ -88,14 +88,6 @@ function extractLongTasks(lhr: Lhr): { count: number; details: LongTaskDetail[] 
   };
 }
 
-function sameOrigin(candidate: string, pageUrl: string): boolean {
-  try {
-    return new URL(candidate).origin === new URL(pageUrl).origin;
-  } catch {
-    return true;
-  }
-}
-
 function extractRequests(lhr: Lhr, pageUrl: string): RequestSummary[] {
   const items: any[] = lhr.audits?.['network-requests']?.details?.items ?? [];
   return items
@@ -117,15 +109,6 @@ function extractRequests(lhr: Lhr, pageUrl: string): RequestSummary[] {
 
 function isFailedRequest(request: RequestSummary): boolean {
   return request.failed === true;
-}
-
-function sumBytes(requests: RequestSummary[], resourceType?: string): number {
-  return requests
-    .filter(
-      (request) =>
-        resourceType === undefined || request.resourceType.toLowerCase() === resourceType.toLowerCase(),
-    )
-    .reduce((total, request) => total + request.bytes, 0);
 }
 
 function extractLcpElement(lhr: Lhr): LcpElement | undefined {
@@ -278,26 +261,26 @@ export function extractResult(lhr: Lhr, url: string, preset: Preset, runs: numbe
     lighthouseVersion: typeof lhr.lighthouseVersion === 'string' ? lhr.lighthouseVersion : undefined,
     chromeVersion:
       typeof lhr.environment?.hostUserAgent === 'string' ? lhr.environment.hostUserAgent : undefined,
-    metrics: {
+    metrics: auditMetrics({
       lcp: numeric(lhr, 'largest-contentful-paint'),
       cls: numeric(lhr, 'cumulative-layout-shift'),
       tbt: numeric(lhr, 'total-blocking-time'),
       fcp: numeric(lhr, 'first-contentful-paint'),
       ttfb: numeric(lhr, 'server-response-time'),
-      js: sumBytes(requests, 'Script'),
-      css: sumBytes(requests, 'Stylesheet'),
-      fonts: sumBytes(requests, 'Font'),
-      images: sumBytes(requests, 'Image'),
-      total: sumBytes(requests),
+      js: sumRequestBytes(requests, 'Script'),
+      css: sumRequestBytes(requests, 'Stylesheet'),
+      fonts: sumRequestBytes(requests, 'Font'),
+      images: sumRequestBytes(requests, 'Image'),
+      total: sumRequestBytes(requests),
       requests: requests.length,
       failedRequests: failedRequests.length,
-      thirdPartyBytes: sumBytes(thirdPartyRequests),
+      thirdPartyBytes: sumRequestBytes(thirdPartyRequests),
       thirdPartyRequests: thirdPartyRequests.length,
       longTasks: longTasks.count,
       thirdPartyMainThread,
       consoleErrors: consoleErrors.length,
       violations: countViolationNodes({ violations }),
-    },
+    }),
     lcpElement: extractLcpElement(lhr),
     heaviest: [...requests].sort((a, b) => b.bytes - a.bytes).slice(0, 10),
     violations,

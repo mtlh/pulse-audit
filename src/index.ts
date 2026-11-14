@@ -38,6 +38,27 @@ export type {
   FastPrecheckResult,
 } from './fast.js';
 export { runApiAudit, pickMedianApiSample } from './api.js';
+export {
+  A11Y_METRIC_LABEL,
+  API_METRICS,
+  AUDIT_METRICS,
+  auditMetrics,
+  budgetRuleConfigured,
+  FAST_SIZE_METRICS,
+  FAST_TIMING_METRICS,
+  findApiMetric,
+  findAuditMetric,
+} from './metrics.js';
+export type {
+  ApiMetricDefinition,
+  AuditMetricDefinition,
+  AuditMetricDefinitionKey,
+  BudgetMetricKey,
+  FastStrategy,
+  MetricDefinition,
+} from './metrics.js';
+export { checkNotes, checkView, checkViews, countChecks, findCheck } from './checks.js';
+export type { CheckCounts, CheckNote, CheckView } from './checks.js';
 export { expandEnv, resolveAuthHeaders, resolveRequestHeaders } from './auth.js';
 export { findChromeBinary, isWsl, linuxChromeCandidates } from './chrome.js';
 export type { ChromeLookup, ChromeLookupOptions } from './chrome.js';
@@ -76,6 +97,10 @@ export { writeJsonReport } from './reporters/json.js';
 export { renderHtml, writeHtmlReport } from './reporters/html.js';
 export { renderMarkdown, upsertSummary } from './reporters/summary.js';
 export { formatBytes, formatDelta, formatPercent, formatRange, formatValue } from './format.js';
+export { errorMessage, isEnoent } from './util/errors.js';
+export { readJsonFile, readTextFile, readTextIfPresent, writeJsonFile, writeTextFile } from './util/files.js';
+export { padRight, truncate } from './util/text.js';
+export { sameOrigin, sumRequestBytes } from './util/requests.js';
 export { IMPACT_ORDER } from './util/a11y.js';
 export { AUDIT_METRIC_KEYS, metricSpreads, metricStat } from './util/variance.js';
 export type { AuditMetricKey, MetricStat } from './util/variance.js';

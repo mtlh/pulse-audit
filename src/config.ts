@@ -1,6 +1,5 @@
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
-import { dirname } from 'node:path';
 import { z } from 'zod';
+import { AUDIT_METRICS, API_METRICS, type BudgetMetricKey, type UnitParser } from './metrics.js';
 import type {
   A11yBudget,
   ApiBudgetSet,
@@ -15,30 +14,13 @@ import type {
   ResolvedPageConfig,
 } from './types.js';
 import { DEFAULT_CONCURRENCY, DEFAULT_TIMEOUT_MS } from './util/defaults.js';
-import { parseBytes, parseCount, parseDuration, parsePercent, parseScore } from './util/units.js';
+import { errorMessage, isEnoent } from './util/errors.js';
+import { readJsonFile, writeJsonFile } from './util/files.js';
+import { parseCount, parsePercent } from './util/units.js';
 
-type UnitParser = (value: unknown) => unknown;
-type MetricKey = Exclude<keyof BudgetSet, 'a11y'>;
+type MetricKey = BudgetMetricKey;
 
-const METRIC_KEYS: MetricKey[] = [
-  'lcp',
-  'cls',
-  'tbt',
-  'fcp',
-  'ttfb',
-  'js',
-  'css',
-  'fonts',
-  'images',
-  'total',
-  'requests',
-  'failedRequests',
-  'thirdPartyBytes',
-  'thirdPartyRequests',
-  'longTasks',
-  'thirdPartyMainThread',
-  'consoleErrors',
-];
+const METRIC_KEYS: MetricKey[] = AUDIT_METRICS.map((metric) => metric.key);
 
 function metricBudgetSchema(parseMax: UnitParser) {
   return z
@@ -84,28 +66,18 @@ const a11yBudgetSchema = z
     },
   );
 
+function metricBudgetShape(metrics: readonly { key: string; parse: UnitParser }[]): z.ZodRawShape {
+  return Object.fromEntries(
+    metrics.map((metric) => [metric.key, metricBudgetSchema(metric.parse).optional()]),
+  );
+}
+
 const budgetsSchema = z
   .object({
-    lcp: metricBudgetSchema(parseDuration).optional(),
-    cls: metricBudgetSchema(parseScore).optional(),
-    tbt: metricBudgetSchema(parseDuration).optional(),
-    fcp: metricBudgetSchema(parseDuration).optional(),
-    ttfb: metricBudgetSchema(parseDuration).optional(),
-    js: metricBudgetSchema(parseBytes).optional(),
-    css: metricBudgetSchema(parseBytes).optional(),
-    fonts: metricBudgetSchema(parseBytes).optional(),
-    images: metricBudgetSchema(parseBytes).optional(),
-    total: metricBudgetSchema(parseBytes).optional(),
-    requests: metricBudgetSchema(parseCount).optional(),
-    failedRequests: metricBudgetSchema(parseCount).optional(),
-    thirdPartyBytes: metricBudgetSchema(parseBytes).optional(),
-    thirdPartyRequests: metricBudgetSchema(parseCount).optional(),
-    longTasks: metricBudgetSchema(parseCount).optional(),
-    thirdPartyMainThread: metricBudgetSchema(parseDuration).optional(),
-    consoleErrors: metricBudgetSchema(parseCount).optional(),
+    ...metricBudgetShape(AUDIT_METRICS),
     a11y: a11yBudgetSchema.optional(),
   })
-  .strict();
+  .strict() as unknown as z.ZodType<BudgetSet>;
 
 const auditUrlSchema = z
   .string()
@@ -131,12 +103,8 @@ const authSchema = z.discriminatedUnion('type', [
 ]);
 
 const apiBudgetsSchema = z
-  .object({
-    ttfb: metricBudgetSchema(parseDuration).optional(),
-    duration: metricBudgetSchema(parseDuration).optional(),
-    bytes: metricBudgetSchema(parseBytes).optional(),
-  })
-  .strict();
+  .object(metricBudgetShape(API_METRICS))
+  .strict() as unknown as z.ZodType<ApiBudgetSet>;
 
 // API latency is environment-specific, so the defaults only gate regressions
 // and stay warnings until a team opts into absolute maxima.
@@ -229,13 +197,12 @@ export class PulseConfigError extends Error {
 export async function loadConfig(path = '.pulse.json'): Promise<PulseConfig> {
   let raw: unknown;
   try {
-    raw = JSON.parse(await readFile(path, 'utf8'));
+    raw = await readJsonFile(path);
   } catch (error) {
-    const code = (error as NodeJS.ErrnoException).code;
-    if (code === 'ENOENT') {
+    if (isEnoent(error)) {
       throw new PulseConfigError(`No config found at ${path}. Run "pulse init" first.`, path);
     }
-    throw new PulseConfigError(`Could not read ${path}: ${(error as Error).message}`, path);
+    throw new PulseConfigError(`Could not read ${path}: ${errorMessage(error)}`, path);
   }
 
   const parsed = configSchema.safeParse(raw);
@@ -293,7 +260,7 @@ function mergeApiBudgets(base?: ApiBudgetSet, override?: Partial<ApiBudgetSet>):
   const merged: ApiBudgetSet = { ...(base ?? {}) };
   if (!override) return merged;
 
-  for (const key of ['ttfb', 'duration', 'bytes'] as const) {
+  for (const key of API_METRICS.map((metric) => metric.key)) {
     const rule = mergeBudgetRule(base?.[key], override[key]);
     if (rule) merged[key] = rule;
   }
@@ -504,6 +471,5 @@ export async function writeConfig(path: string, config: PulseConfig): Promise<vo
     delete serializable.apiBudgets;
   }
 
-  await mkdir(dirname(path), { recursive: true });
-  await writeFile(path, `${JSON.stringify(serializable, null, 2)}\n`, 'utf8');
+  await writeJsonFile(path, serializable);
 }

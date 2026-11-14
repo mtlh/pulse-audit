@@ -1,10 +1,7 @@
 import { resolveRequestHeaders } from './auth.js';
 import type { ApiMetrics, ApiResult, ResolvedApiTarget } from './types.js';
+import { errorMessage } from './util/errors.js';
 import { median } from './util/median.js';
-
-function message(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
 
 /**
  * A cancelled or timed-out request is an audit error, not a slow sample: there
@@ -40,7 +37,7 @@ async function measureOnce(
   throw new Error(
     `API request failed for ${target.method} ${target.url} on run ${runNumber} after ${
       target.retries + 1
-    } attempt(s): ${message(lastError)}`,
+    } attempt(s): ${errorMessage(lastError)}`,
   );
 }
 
