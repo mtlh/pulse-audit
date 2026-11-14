@@ -110,7 +110,10 @@ async function startServer(): Promise<TestServer> {
     url: `http://127.0.0.1:${port}`,
     close: () =>
       new Promise<void>((resolve, reject) => {
-        server.close((error) => (error ? reject(error) : resolve()));
+        server.close((error) => {
+          if (error) reject(error);
+          else resolve();
+        });
       }),
   };
 }

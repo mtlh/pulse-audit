@@ -126,7 +126,7 @@ export function findChromeBinary(options: ChromeLookupOptions = {}): ChromeLooku
     };
   }
 
-  let installations: string[] = [];
+  let installations: string[];
   try {
     installations = options.installations ? options.installations() : Launcher.getInstallations();
   } catch {

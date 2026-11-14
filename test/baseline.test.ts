@@ -97,8 +97,8 @@ describe('baseline', () => {
         baselineKey('desktop', 'https://example.com/'),
         baselineKey('mobile', 'https://example.com/legacy'),
       ]);
-      expect(file.results[baselineKey('desktop', 'https://example.com/')]?.preset).toBe('desktop');
-      expect(file.results[baselineKey('mobile', 'https://example.com/legacy')]?.url).toBe(
+      expect(file.results[baselineKey('desktop', 'https://example.com/')].preset).toBe('desktop');
+      expect(file.results[baselineKey('mobile', 'https://example.com/legacy')].url).toBe(
         'https://example.com/legacy',
       );
     });
@@ -122,8 +122,8 @@ describe('baseline', () => {
       baselineKey('desktop', 'https://example.com/'),
       baselineKey('mobile', 'https://example.com/'),
     ]);
-    expect(merged.results[baselineKey('mobile', 'https://example.com/')]?.preset).toBe('mobile');
-    expect(merged.results[baselineKey('desktop', 'https://example.com/')]?.preset).toBe('desktop');
+    expect(merged.results[baselineKey('mobile', 'https://example.com/')].preset).toBe('mobile');
+    expect(merged.results[baselineKey('desktop', 'https://example.com/')].preset).toBe('desktop');
   });
 
   it('prunes to only the requested keys without mutating the input', () => {
@@ -143,7 +143,7 @@ describe('baseline', () => {
     const pruned = pruneBaseline(file, new Set([mobileKey]));
 
     expect(Object.keys(pruned.results)).toEqual([mobileKey]);
-    expect(pruned.results[mobileKey]?.preset).toBe('mobile');
+    expect(pruned.results[mobileKey].preset).toBe('mobile');
     expect(Object.keys(file.results)).toHaveLength(3);
   });
 

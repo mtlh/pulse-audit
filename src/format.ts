@@ -47,7 +47,9 @@ export function formatRange(min: number, max: number, format: ValueFormat): stri
   if (format === 'ms' || format === 'bytes') {
     const minParts = /^([\d.]+)( ?[A-Za-z]+)$/.exec(minText);
     const maxParts = /^([\d.]+)( ?[A-Za-z]+)$/.exec(maxText);
-    if (minParts && maxParts && minParts[2] === maxParts[2]) {
+    const minUnit = minParts?.[2];
+    const maxUnit = maxParts?.[2];
+    if (minParts && maxParts && minUnit !== undefined && minUnit === maxUnit) {
       return `${minParts[1]}–${maxText}`;
     }
   }
@@ -60,12 +62,16 @@ export function formatPercent(value: number | undefined): string {
   return `${sign}${value.toFixed(1)}%`;
 }
 
+const HTML_ENTITIES = new Map([
+  ['&', '&amp;'],
+  ['<', '&lt;'],
+  ['>', '&gt;'],
+  ['"', '&quot;'],
+  ["'", '&#39;'],
+]);
+
 export function escapeHtml(value: string): string {
-  return value.replace(
-    /[&<>"']/g,
-    (character) =>
-      ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[character] as string,
-  );
+  return value.replace(/[&<>"']/g, (character) => HTML_ENTITIES.get(character) ?? character);
 }
 
 /**

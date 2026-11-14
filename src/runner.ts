@@ -1,4 +1,5 @@
 import * as chromeLauncher from 'chrome-launcher';
+import type * as LighthouseNamespace from './lighthouse.js';
 import { resolveAuthHeaders } from './auth.js';
 import { findChromeBinary } from './chrome.js';
 import { countViolationNodes, violationKey } from './compare.js';
@@ -41,7 +42,7 @@ const DESKTOP_THROTTLING = {
 // Lighthouse is a heavy module tree (~1.6 s to import). Loading it lazily
 // keeps `pulse doctor`, `baseline`, `--version` and library imports fast, and
 // lets the audit start the import alongside the Chrome launch.
-type LighthouseModule = typeof import('./lighthouse.js');
+type LighthouseModule = typeof LighthouseNamespace;
 type LighthouseRunner = LighthouseModule['default'];
 interface PuppeteerPage {
   goto(url: string, options: { waitUntil: 'load'; timeout: number }): Promise<unknown>;
@@ -87,7 +88,7 @@ export const REQUIRED_PERFORMANCE_AUDITS: ReadonlySet<string> = new Set([
 export const LIGHTHOUSE_CATEGORIES = ['performance', 'accessibility', 'best-practices'] as const;
 
 interface LighthouseConfigLike {
-  categories?: Record<string, { auditRefs?: ReadonlyArray<{ id?: string }> }> | null;
+  categories?: Record<string, { auditRefs?: readonly { id?: string }[] } | undefined> | null;
 }
 
 /**
@@ -98,8 +99,11 @@ interface LighthouseConfigLike {
 export function computePerformanceSkipAudits(config: LighthouseConfigLike | undefined): string[] {
   const refs = config?.categories?.performance?.auditRefs;
   if (!Array.isArray(refs)) return [];
-  return refs
-    .map((ref) => (typeof ref?.id === 'string' ? ref.id : undefined))
+  // `Array.isArray` narrows a readonly array to `any[]`; restore the element
+  // type before reading `id`.
+  const auditRefs: readonly { id?: string }[] = refs;
+  return auditRefs
+    .map((ref) => (typeof ref.id === 'string' ? ref.id : undefined))
     .filter((id): id is string => id !== undefined && !REQUIRED_PERFORMANCE_AUDITS.has(id));
 }
 
@@ -217,7 +221,7 @@ function mergeNode(current: A11yNode, next: A11yNode): A11yNode {
     selector: current.selector || next.selector,
     snippet: richerText(current.snippet, next.snippet),
     impact: mergeImpact(current.impact, next.impact),
-    failureSummary: current.failureSummary || next.failureSummary,
+    failureSummary: current.failureSummary ?? next.failureSummary,
   };
 }
 
@@ -229,27 +233,29 @@ function mergeNode(current: A11yNode, next: A11yNode): A11yNode {
 function unionViolations(results: AuditResult[]): A11yViolation[] {
   const byId = new Map<string, A11yViolation>();
   const nodeIndex = new Map<string, A11yNode>();
-  const impactsById = new Map<string, Array<A11yImpact | undefined>>();
+  const impactsById = new Map<string, (A11yImpact | undefined)[]>();
 
   for (const result of results) {
     for (const violation of result.violations) {
       let merged = byId.get(violation.id);
-      if (!merged) {
+      let impacts = impactsById.get(violation.id);
+      if (!merged || !impacts) {
         merged = {
           id: violation.id,
           title: violation.title,
           impact: violation.impact,
           nodes: [],
         };
+        impacts = [];
         byId.set(violation.id, merged);
-        impactsById.set(violation.id, []);
+        impactsById.set(violation.id, impacts);
       } else {
         merged.title = richerText(merged.title, violation.title) ?? merged.title;
       }
-      impactsById.get(violation.id)!.push(violation.impact);
+      impacts.push(violation.impact);
 
       for (const node of violation.nodes) {
-        impactsById.get(violation.id)!.push(node.impact);
+        impacts.push(node.impact);
         const key = violationKey(violation.id, node.selector, node.failureSummary);
         const existing = nodeIndex.get(key);
         if (!existing) {
@@ -365,10 +371,17 @@ async function measureOnce(
         // list is derived from the installed config, so it stays in sync with
         // new Lighthouse audits.
         ...(skipAudits.length > 0 ? { skipAudits } : {}),
-      } as any);
+      } as unknown as Parameters<LighthouseRunner>[1]);
 
       if (!runner) throw new Error('Lighthouse returned no result');
-      return extractResult(runner.lhr as any, url, options.preset, options.runs);
+      // Lighthouse's Result type does not expose the index signature its
+      // versioned LHR shape needs; the extractor validates every field anyway.
+      return extractResult(
+        runner.lhr as unknown as Parameters<typeof extractResult>[0],
+        url,
+        options.preset,
+        options.runs,
+      );
     } catch (error) {
       lastError = error;
     }
@@ -392,7 +405,7 @@ async function measureTarget(
   // Resolve per target so a missing secret fails this URL, not the whole session.
   const extraHeaders = options.auth ? resolveAuthHeaders(options.auth) : undefined;
   const warmup = options.warmup ?? 'navigate';
-  const onProgress = options.onProgress ?? (() => {});
+  const onProgress = options.onProgress ?? (() => undefined);
 
   if (warmup !== 'none') {
     const startedAt = Date.now();
@@ -537,12 +550,6 @@ async function auditTargetsInWorkers(
   options: AuditTargetsOptions,
   concurrency: number,
 ): Promise<AuditTargetOutcome[]> {
-  for (const target of targets) {
-    if (!target.options) {
-      throw new Error(`Concurrent audits need serialisable options for ${target.url}`);
-    }
-  }
-
   const { Worker } = await import('node:worker_threads');
   const outcomes = new Array<AuditTargetOutcome | undefined>(targets.length);
   const lanes = Math.min(concurrency, targets.length);
@@ -550,7 +557,10 @@ async function auditTargetsInWorkers(
   const workers = new Set<InstanceType<typeof Worker>>();
 
   targets.forEach((target, index) => {
-    batches[index % lanes].push({ index, url: target.url, options: target.options! });
+    if (!target.options) {
+      throw new Error(`Concurrent audits need serialisable options for ${target.url}`);
+    }
+    batches[index % lanes].push({ index, url: target.url, options: target.options });
   });
 
   const shutdown = (): void => {
@@ -563,7 +573,11 @@ async function auditTargetsInWorkers(
     }
     // A stuck worker must not keep the process alive forever.
     const timer = setTimeout(() => {
-      for (const worker of workers) void worker.terminate().catch(() => {});
+      for (const worker of workers) {
+        void worker.terminate().catch(() => {
+          // The lane may already be gone.
+        });
+      }
     }, 2_000);
     timer.unref();
   };
@@ -624,7 +638,7 @@ async function auditTargetsInWorkers(
                 status: 'error',
                 error: message.message,
               };
-            } else if (message.type === 'done') {
+            } else {
               void worker.terminate();
               finish();
             }
@@ -675,14 +689,20 @@ export async function auditTargets(
   const outcomes = await mapWithConcurrency(targets, 1, async (target) => {
     options.onTargetStart?.(target);
     try {
-      const audited = target.audit
-        ? await target.audit(session)
-        : {
-            result: await session.auditTarget(target.url, {
-              ...target.options!,
-              onProgress: options.onProgress,
-            }),
-          };
+      let audited: AuditTargetResult;
+      if (target.audit) {
+        audited = await target.audit(session);
+      } else {
+        if (!target.options) {
+          throw new Error(`Audit target ${target.url} needs serialisable options`);
+        }
+        audited = {
+          result: await session.auditTarget(target.url, {
+            ...target.options,
+            onProgress: options.onProgress,
+          }),
+        };
+      }
       return {
         url: target.url,
         status: 'ok' as const,
