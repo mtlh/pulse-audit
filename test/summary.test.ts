@@ -22,6 +22,7 @@ const METRICS: AuditMetrics = {
   thirdPartyRequests: 0,
   longTasks: 0,
   thirdPartyMainThread: 0,
+  consoleErrors: 0,
   violations: 0,
 };
 
@@ -168,6 +169,25 @@ describe('renderMarkdown', () => {
     expect(markdown.match(/\*\*Failed request\*\*/g)).toHaveLength(5);
     expect(markdown).toContain('404 `https://example.com/missing-0.png` (Image)');
     expect(markdown).not.toContain('missing-5.png');
+  });
+
+  it('adds a compact bullet for console errors, capped at five', () => {
+    const withErrors = report();
+    withErrors.results[0].audit.metrics = { ...METRICS, consoleErrors: 7 };
+    withErrors.results[0].audit.consoleErrorDetails = Array.from({ length: 7 }, (_, index) => ({
+      description: `Error ${index + 1}`,
+    }));
+
+    const markdown = renderMarkdown(withErrors);
+
+    expect(markdown).toContain(
+      '- **Console errors** (7): Error 1; Error 2; Error 3; Error 4; Error 5 (+2 more)',
+    );
+    expect(markdown).not.toContain('Error 6');
+  });
+
+  it('omits the console errors bullet when the page logged none', () => {
+    expect(renderMarkdown(report())).not.toContain('Console errors');
   });
 
   it('renders API timings in a separate section', () => {

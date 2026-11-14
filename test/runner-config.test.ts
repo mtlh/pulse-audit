@@ -1,6 +1,10 @@
 import { defaultConfig } from 'lighthouse';
 import { describe, expect, it } from 'vitest';
-import { REQUIRED_PERFORMANCE_AUDITS, computePerformanceSkipAudits } from '../src/runner.js';
+import {
+  LIGHTHOUSE_CATEGORIES,
+  REQUIRED_PERFORMANCE_AUDITS,
+  computePerformanceSkipAudits,
+} from '../src/runner.js';
 
 // The suite runs against the installed Lighthouse version, so a major bump that
 // removes one of the audits Pulse reads (or changes the `defaultConfig` export)
@@ -9,6 +13,21 @@ describe('Lighthouse performance audit skip list', () => {
   const config = defaultConfig as any;
   const perfAuditRefs: Array<{ id?: string }> | undefined = config?.categories?.performance?.auditRefs;
   const installedIds = new Set((perfAuditRefs ?? []).map((ref) => ref.id));
+
+  it('runs the best-practices category for the console error audit', () => {
+    expect(LIGHTHOUSE_CATEGORIES).toContain('performance');
+    expect(LIGHTHOUSE_CATEGORIES).toContain('accessibility');
+    expect(LIGHTHOUSE_CATEGORIES).toContain('best-practices');
+
+    const bestPracticeIds = new Set(
+      (config?.categories?.['best-practices']?.auditRefs ?? []).map((ref: { id?: string }) => ref.id),
+    );
+    expect(bestPracticeIds.has('errors-in-console')).toBe(true);
+  });
+
+  it('never skips the console error audit', () => {
+    expect(computePerformanceSkipAudits(config)).not.toContain('errors-in-console');
+  });
 
   it('exports a usable performance category', () => {
     expect(Array.isArray(perfAuditRefs)).toBe(true);

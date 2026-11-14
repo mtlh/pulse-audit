@@ -34,6 +34,7 @@ const METRICS: AuditMetrics = {
   thirdPartyRequests: 5,
   longTasks: 2,
   thirdPartyMainThread: 0,
+  consoleErrors: 0,
   violations: 0,
 };
 

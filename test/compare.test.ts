@@ -26,6 +26,7 @@ const BASE_METRICS: AuditMetrics = {
   thirdPartyRequests: 5,
   longTasks: 3,
   thirdPartyMainThread: 100,
+  consoleErrors: 0,
   violations: 0,
 };
 
@@ -280,6 +281,47 @@ describe('compareResult', () => {
 
     expect(thirdParty.status).toBe('fail');
     expect(thirdParty.reason).toContain('regressed');
+  });
+
+  it('fails a console error that appears over the zero default budget', () => {
+    const current = withMetrics({ consoleErrors: 1 });
+    const consoleErrors = check(compareResult(current, null, config()), 'consoleErrors');
+
+    expect(consoleErrors.label).toBe('Console errors');
+    expect(consoleErrors.format).toBe('count');
+    expect(consoleErrors.severity).toBe('error');
+    expect(consoleErrors.max).toBe(0);
+    expect(consoleErrors.status).toBe('fail');
+    expect(consoleErrors.reason).toContain('over max 0');
+  });
+
+  it('passes a page with no console errors', () => {
+    const consoleErrors = check(compareResult(result(), result(), config()), 'consoleErrors');
+
+    expect(consoleErrors.value).toBe(0);
+    expect(consoleErrors.status).toBe('pass');
+  });
+
+  it('ratchets inherited console errors that do not increase', () => {
+    const baseline = withMetrics({ consoleErrors: 2 });
+    const current = withMetrics({ consoleErrors: 2 });
+    const consoleErrors = check(compareResult(current, baseline, config()), 'consoleErrors');
+
+    expect(consoleErrors.status).toBe('pass');
+    expect(consoleErrors.reason).toContain('not a regression');
+  });
+
+  it('fails a console error that appears over a baseline without the metric', () => {
+    // A v3 baseline written before console errors were recorded has no value,
+    // so the absolute max still has to apply.
+    const baseline = result({
+      metrics: { ...BASE_METRICS, consoleErrors: undefined as unknown as number },
+    });
+    const current = withMetrics({ consoleErrors: 1 });
+    const consoleErrors = check(compareResult(current, baseline, config()), 'consoleErrors');
+
+    expect(consoleErrors.status).toBe('fail');
+    expect(consoleErrors.reason).not.toContain('not a regression');
   });
 
   it('counts new a11y violation nodes against the baseline', () => {

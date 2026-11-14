@@ -38,7 +38,10 @@ describe.skipIf(!enabled || !chrome)('user flow: audit a site against minimums',
     expect(audit.metrics.requests).toBeGreaterThanOrEqual(4);
     expect(audit.metrics.violations).toBeGreaterThanOrEqual(3);
     expect(audit.metrics.fcp).toBeGreaterThan(0);
-    expect(audit.metrics.ttfb).toBeGreaterThan(0);
+    // The localhost fixture can answer within the same millisecond, which
+    // Lighthouse reports as 0 ms, so only assert that TTFB was extracted.
+    expect(audit.metrics.ttfb).toBeGreaterThanOrEqual(0);
+    expect(Number.isFinite(audit.metrics.ttfb)).toBe(true);
     expect(audit.metrics.css).toBeGreaterThanOrEqual(0);
     expect(audit.metrics.fonts).toBeGreaterThanOrEqual(0);
     expect(audit.metrics.total).toBeGreaterThanOrEqual(audit.metrics.js);

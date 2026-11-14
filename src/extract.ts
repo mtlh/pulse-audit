@@ -4,6 +4,7 @@ import type {
   A11yNode,
   A11yViolation,
   AuditResult,
+  ConsoleError,
   LcpElement,
   LongTaskDetail,
   Preset,
@@ -187,6 +188,40 @@ function thirdPartyCpuItems(lhr: Lhr): ThirdPartyCpu[] | undefined {
   }));
 }
 
+function normalizeConsoleDescription(value: unknown): string {
+  return typeof value === 'string' ? value.replace(/\s+/g, ' ').trim() : '';
+}
+
+/**
+ * Lighthouse reports one table row per console error, so the same message can
+ * repeat when a script fails in a loop. Pulse counts unique normalized
+ * descriptions and keeps the first source location it saw for each.
+ */
+export function extractConsoleErrors(lhr: Lhr): ConsoleError[] {
+  const audit = lhr.audits?.['errors-in-console'];
+  if (!audit || audit.scoreDisplayMode === 'notApplicable') return [];
+
+  const items: any[] = Array.isArray(audit.details?.items) ? audit.details.items : [];
+  const seen = new Set<string>();
+  const errors: ConsoleError[] = [];
+
+  for (const item of items) {
+    const description = normalizeConsoleDescription(item?.description);
+    if (!description || seen.has(description)) continue;
+    seen.add(description);
+
+    const location = item?.sourceLocation;
+    errors.push({
+      description,
+      url: typeof location?.url === 'string' ? location.url : undefined,
+      line: typeof location?.line === 'number' ? location.line : undefined,
+      column: typeof location?.column === 'number' ? location.column : undefined,
+    });
+  }
+
+  return errors;
+}
+
 function extractViolations(lhr: Lhr): A11yViolation[] {
   const refs: any[] = lhr.categories?.accessibility?.auditRefs ?? [];
   const violations: A11yViolation[] = [];
@@ -233,6 +268,7 @@ export function extractResult(lhr: Lhr, url: string, preset: Preset, runs: numbe
   const failedRequests = requests.filter(isFailedRequest);
   const thirdPartyCpuAll = thirdPartyCpuItems(lhr) ?? [];
   const thirdPartyMainThread = thirdPartyCpuAll.reduce((total, item) => total + item.mainThreadTime, 0);
+  const consoleErrors = extractConsoleErrors(lhr);
 
   return {
     url,
@@ -259,6 +295,7 @@ export function extractResult(lhr: Lhr, url: string, preset: Preset, runs: numbe
       thirdPartyRequests: thirdPartyRequests.length,
       longTasks: longTasks.count,
       thirdPartyMainThread,
+      consoleErrors: consoleErrors.length,
       violations: countViolationNodes({ violations }),
     },
     lcpElement: extractLcpElement(lhr),
@@ -268,5 +305,6 @@ export function extractResult(lhr: Lhr, url: string, preset: Preset, runs: numbe
     ...(longTasks.details.length > 0 ? { longTaskDetails: longTasks.details } : {}),
     failedRequestDetails: failedRequests.slice(0, 10),
     thirdPartyCpu: [...thirdPartyCpuAll].sort((a, b) => b.mainThreadTime - a.mainThreadTime).slice(0, 10),
+    consoleErrorDetails: consoleErrors.length > 0 ? consoleErrors.slice(0, 10) : undefined,
   };
 }

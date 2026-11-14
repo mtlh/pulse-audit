@@ -15,6 +15,7 @@ import type {
   ApiReportEntry,
   Check,
   LongTaskDetail,
+  ConsoleError,
   PulseReport,
   ReportEntry,
   RequestSummary,
@@ -229,6 +230,49 @@ function cpuList(cpu: ThirdPartyCpu[]): string {
     .join('');
 }
 
+function consoleLocation(error: ConsoleError): string | undefined {
+  const parts: string[] = [];
+  if (error.url) parts.push(error.url);
+  if (error.line !== undefined) parts.push(`line ${error.line}`);
+  if (error.column !== undefined) parts.push(`column ${error.column}`);
+  return parts.length > 0 ? parts.join(' · ') : undefined;
+}
+
+/**
+ * Lists the unique console errors Lighthouse captured. Omitted entirely when
+ * the count is zero, so a clean page does not get an empty card.
+ */
+function renderConsoleErrors(entry: ReportEntry): string {
+  const count = entry.audit.metrics.consoleErrors;
+  if (count <= 0) return '';
+
+  const heading = `<h3>Console errors <span class="muted">${count} unique</span></h3>`;
+  const errors = entry.audit.consoleErrorDetails ?? [];
+
+  if (errors.length === 0) {
+    return `<section class="card">${heading}<p class="muted">${count} console error${
+      count === 1 ? '' : 's'
+    } captured; per-error detail was not recorded.</p></section>`;
+  }
+
+  const rows = errors
+    .map((error) => {
+      const location = consoleLocation(error);
+      return `<li class="console-error">
+        <div class="console-message">${escapeHtml(error.description)}</div>
+        ${location ? `<div class="console-source break">${escapeHtml(location)}</div>` : ''}
+      </li>`;
+    })
+    .join('');
+
+  const remaining = count - errors.length;
+  return `<section class="card">
+    ${heading}
+    <ul class="console-errors">${rows}</ul>
+    ${remaining > 0 ? `<p class="hint">${remaining} more not shown.</p>` : ''}
+  </section>`;
+}
+
 /**
  * Counts violation nodes with the same identity and de-duplication rules as the
  * gate, so the summary card cannot claim a different total from the check table.
@@ -373,6 +417,7 @@ function renderExtras(entry: ReportEntry): string {
     renderVariance(entry),
     renderLongTasks(entry),
     renderThirdParty(entry),
+    renderConsoleErrors(entry),
   ].filter(Boolean);
   if (cards.length === 0) return '';
   return `<div class="extras">${cards.join('')}</div>`;
@@ -601,6 +646,11 @@ export function renderHtml(report: PulseReport): string {
   .req-top { display: flex; justify-content: space-between; gap: 10px; font-size: 12.5px; margin-bottom: 4px; min-width: 0; }
   .req-url { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .req-meta { color: var(--muted); white-space: nowrap; }
+  .console-errors { list-style: none; margin: 0; padding: 0; min-width: 0; }
+  .console-error { border-top: 1px solid var(--border); padding: 8px 0; min-width: 0; }
+  .console-error:first-child { border-top: none; padding-top: 0; }
+  .console-message { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12.5px; overflow-wrap: anywhere; }
+  .console-source { color: var(--muted); font-size: 11.5px; margin-top: 3px; }
   .third { color: var(--warn); }
   .req-fail { color: var(--fail); font-weight: 700; }
   .bar { height: 5px; background: var(--bar); border-radius: 999px; overflow: hidden; }

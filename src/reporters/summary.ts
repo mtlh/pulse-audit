@@ -1,11 +1,13 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { dirname } from 'node:path';
 import { formatDelta, formatPercent, formatValue, noteworthyReason } from '../format.js';
-import type { Check, PulseReport, RequestSummary } from '../types.js';
+import type { Check, PulseReport, ReportEntry, RequestSummary } from '../types.js';
 import { apiSpreadParts, spreadParts } from './spread.js';
 
 const SUMMARY_START = '<!-- pulse:start -->';
 const SUMMARY_END = '<!-- pulse:end -->';
+/** Keep the PR summary short: five descriptions are enough to recognise debt. */
+const MAX_SUMMARY_CONSOLE_ERRORS = 5;
 
 function spreadLine(parts: string[]): string | undefined {
   return parts.length > 0 ? `**Run spread**: ${parts.join(' · ')}` : undefined;
@@ -15,6 +17,22 @@ function failedRequestBullet(request: RequestSummary): string {
   const status =
     request.statusCode !== undefined && request.statusCode >= 400 ? String(request.statusCode) : 'aborted';
   return `- **Failed request**: ${status} \`${request.url}\` (${request.resourceType})`;
+}
+
+/**
+ * One compact bullet with the current unique console errors. Returns undefined
+ * when the page logged none, so clean runs keep the summary unchanged.
+ */
+function consoleErrorLine(entry: ReportEntry): string | undefined {
+  const count = entry.audit.metrics.consoleErrors;
+  if (count <= 0) return undefined;
+
+  const shown = (entry.audit.consoleErrorDetails ?? [])
+    .slice(0, MAX_SUMMARY_CONSOLE_ERRORS)
+    .map((error) => error.description);
+  const remaining = count - shown.length;
+  const suffix = remaining > 0 ? ` (+${remaining} more)` : '';
+  return `- **Console errors** (${count})${shown.length > 0 ? `: ${shown.join('; ')}${suffix}` : ''}`;
 }
 
 function checkTable(checks: Check[]): string[] {
@@ -56,6 +74,8 @@ export function renderMarkdown(report: PulseReport): string {
     for (const request of (entry.audit.failedRequestDetails ?? []).slice(0, 5)) {
       lines.push('', failedRequestBullet(request));
     }
+    const consoleErrors = consoleErrorLine(entry);
+    if (consoleErrors) lines.push('', consoleErrors);
 
     const thirdPartyMainThread = entry.audit.metrics.thirdPartyMainThread;
     if (thirdPartyMainThread > 0) {
