@@ -29,6 +29,7 @@ const BASE_METRICS: AuditMetrics = {
   thirdPartyRequests: 2,
   longTasks: 2,
   thirdPartyMainThread: 840,
+  consoleErrors: 0,
   violations: 3,
 };
 
@@ -249,6 +250,46 @@ describe('renderHtml', () => {
     expect(html).toContain('+66.7%');
     // The measured run count wins over the (different) gate run count.
     expect(html).toContain('<span class="muted">2 runs</span>');
+  });
+
+  it('renders a console errors card with description and source location', () => {
+    const withConsoleErrors = audit({
+      metrics: metrics({ consoleErrors: 2 }),
+      consoleErrorDetails: [
+        {
+          description: 'Failed to load resource: 404',
+          url: 'https://example.com/missing.js',
+          line: 3,
+          column: 12,
+        },
+        { description: evil, url: 'https://example.com/app.js' },
+      ],
+    });
+    const html = renderHtml(report({ results: [entry({ audit: withConsoleErrors })] }));
+
+    expect(html).toContain('Console errors');
+    expect(html).toContain('2 unique');
+    expect(html).toContain('Failed to load resource: 404');
+    expect(html).toContain('https://example.com/missing.js · line 3 · column 12');
+    expect(html).not.toContain('<script>window.pwned');
+    expect(html).toContain('&lt;script&gt;window.pwned = 1&lt;/script&gt;');
+  });
+
+  it('omits the console errors card when the page logged none', () => {
+    const html = renderHtml(report());
+
+    expect(html).not.toContain('Console errors');
+  });
+
+  it('notes a console error count that has no recorded detail', () => {
+    const withoutDetail = audit({
+      metrics: metrics({ consoleErrors: 3 }),
+      consoleErrorDetails: undefined,
+    });
+    const html = renderHtml(report({ results: [entry({ audit: withoutDetail })] }));
+
+    expect(html).toContain('Console errors');
+    expect(html).toContain('3 console errors captured; per-error detail was not recorded.');
   });
 
   it('omits the run variance card when only one sample exists', () => {

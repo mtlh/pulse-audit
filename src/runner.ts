@@ -78,6 +78,13 @@ export const REQUIRED_PERFORMANCE_AUDITS: ReadonlySet<string> = new Set([
   'third-parties-insight',
 ]);
 
+/**
+ * Categories Lighthouse must run. `best-practices` is here only for
+ * `errors-in-console`; Pulse reports no best-practices score and does not skip
+ * that category's other audits, because they are not what makes the run long.
+ */
+export const LIGHTHOUSE_CATEGORIES = ['performance', 'accessibility', 'best-practices'] as const;
+
 interface LighthouseConfigLike {
   categories?: Record<string, { auditRefs?: ReadonlyArray<{ id?: string }> }> | null;
 }
@@ -280,7 +287,7 @@ async function measureOnce(
         port: chromePort,
         output: 'json',
         logLevel: 'error',
-        onlyCategories: ['performance', 'accessibility'],
+        onlyCategories: [...LIGHTHOUSE_CATEGORIES],
         formFactor: options.preset,
         screenEmulation: options.preset === 'mobile' ? MOBILE_SCREEN : DESKTOP_SCREEN,
         throttling: options.preset === 'mobile' ? MOBILE_THROTTLING : DESKTOP_THROTTLING,

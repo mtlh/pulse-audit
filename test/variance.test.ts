@@ -20,6 +20,7 @@ function metrics(overrides: Partial<AuditMetrics> = {}): AuditMetrics {
     thirdPartyRequests: 0,
     longTasks: 0,
     thirdPartyMainThread: 0,
+    consoleErrors: 0,
     violations: 0,
     ...overrides,
   };
@@ -72,7 +73,7 @@ describe('metricSpreads', () => {
 
     const spreads = metricSpreads(samples);
 
-    expect(AUDIT_METRIC_KEYS).toHaveLength(17);
+    expect(AUDIT_METRIC_KEYS).toHaveLength(18);
     for (const key of AUDIT_METRIC_KEYS) {
       expect(spreads[key]).toBeDefined();
     }

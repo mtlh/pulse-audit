@@ -32,6 +32,44 @@ function lhr(): Record<string, any> {
           },
         },
       },
+      'errors-in-console': {
+        score: 0,
+        scoreDisplayMode: 'binary',
+        details: {
+          items: [
+            {
+              source: 'network',
+              description: 'Failed to load resource: the server responded with a status of 404',
+              sourceLocation: {
+                type: 'source-location',
+                url: 'https://example.com/missing.js',
+                line: 3,
+                column: 12,
+              },
+            },
+            {
+              source: 'network',
+              description: 'Failed to load resource: the server responded with a status of 404',
+              sourceLocation: {
+                type: 'source-location',
+                url: 'https://example.com/missing.js',
+                line: 3,
+                column: 12,
+              },
+            },
+            {
+              source: 'console.error',
+              description: '  Uncaught TypeError:  cannot read property   of undefined ',
+              sourceLocation: {
+                type: 'source-location',
+                url: 'https://example.com/app.js',
+                line: 10,
+                column: 4,
+              },
+            },
+          ],
+        },
+      },
       'lcp-breakdown-insight': {
         details: {
           type: 'list',
@@ -179,10 +217,66 @@ describe('extractResult', () => {
       thirdPartyRequests: 3,
       longTasks: 3,
       thirdPartyMainThread: 200.5,
+      consoleErrors: 2,
       violations: 4,
     });
     expect(result.lighthouseVersion).toBe('13.6.0');
     expect(result.chromeVersion).toContain('Chrome/126');
+  });
+
+  it('dedupes console errors by normalized description and keeps their source location', () => {
+    const result = extractResult(lhr(), 'https://example.com/', 'mobile', 3);
+
+    expect(result.metrics.consoleErrors).toBe(2);
+    expect(result.consoleErrorDetails).toEqual([
+      {
+        description: 'Failed to load resource: the server responded with a status of 404',
+        url: 'https://example.com/missing.js',
+        line: 3,
+        column: 12,
+      },
+      {
+        description: 'Uncaught TypeError: cannot read property of undefined',
+        url: 'https://example.com/app.js',
+        line: 10,
+        column: 4,
+      },
+    ]);
+  });
+
+  it('caps console error details at the top 10 unique entries', () => {
+    const raw = lhr();
+    raw.audits['errors-in-console'].details.items = Array.from({ length: 12 }, (_, index) => ({
+      description: `Error ${index}`,
+      sourceLocation: {
+        type: 'source-location',
+        url: `https://example.com/script-${index}.js`,
+        line: index,
+        column: 0,
+      },
+    }));
+
+    const result = extractResult(raw, 'https://example.com/', 'mobile', 1);
+    expect(result.metrics.consoleErrors).toBe(12);
+    expect(result.consoleErrorDetails).toHaveLength(10);
+    expect(result.consoleErrorDetails?.[9].description).toBe('Error 9');
+  });
+
+  it('reports no console errors when the audit is missing or not applicable', () => {
+    const missing = lhr();
+    delete missing.audits['errors-in-console'];
+    const withoutAudit = extractResult(missing, 'https://example.com/', 'mobile', 1);
+    expect(withoutAudit.metrics.consoleErrors).toBe(0);
+    expect(withoutAudit.consoleErrorDetails).toBeUndefined();
+
+    const notApplicable = lhr();
+    notApplicable.audits['errors-in-console'] = {
+      scoreDisplayMode: 'notApplicable',
+      details: { items: [{ description: 'Should not count' }] },
+    };
+    const skipped = extractResult(notApplicable, 'https://example.com/', 'mobile', 1);
+    expect(skipped.metrics.consoleErrors).toBe(0);
+    expect(skipped.consoleErrorDetails).toBeUndefined();
   });
 
   it('extracts the LCP element from the Lighthouse 13 insight node item', () => {
@@ -340,11 +434,13 @@ describe('extractResult', () => {
       thirdPartyRequests: 0,
       longTasks: 0,
       thirdPartyMainThread: 0,
+      consoleErrors: 0,
       violations: 0,
     });
     expect(result.heaviest).toEqual([]);
     expect(result.thirdPartyHeaviest).toEqual([]);
     expect(result.thirdPartyCpu).toEqual([]);
+    expect(result.consoleErrorDetails).toBeUndefined();
     expect(result.lcpElement).toBeUndefined();
     expect(result.longTaskDetails).toBeUndefined();
   });

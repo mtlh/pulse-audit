@@ -30,6 +30,7 @@ function metrics(overrides: Partial<AuditMetrics> = {}): AuditMetrics {
     thirdPartyRequests: 0,
     longTasks: 0,
     thirdPartyMainThread: 0,
+    consoleErrors: 0,
     violations: 2,
     ...overrides,
   };
@@ -67,6 +68,7 @@ describe('config', () => {
       regression: 20,
       severity: 'warn',
     });
+    expect(parsed.budgets.consoleErrors).toEqual({ max: 0, regression: 0 });
     expect(parsed.budgets.a11y?.maxNewByImpact).toEqual({ critical: 0, serious: 0 });
   });
 
@@ -119,6 +121,7 @@ describe('config', () => {
         requests: { max: '90', regression: '10%' },
         longTasks: { max: '12' },
         failedRequests: { max: '2', regression: '0%' },
+        consoleErrors: { max: '3' },
       },
     });
 
@@ -129,6 +132,7 @@ describe('config', () => {
     expect(parsed.budgets.requests?.regression).toBe(10);
     expect(parsed.budgets.longTasks?.max).toBe(12);
     expect(parsed.budgets.failedRequests).toEqual({ max: 2, regression: 0 });
+    expect(parsed.budgets.consoleErrors?.max).toBe(3);
   });
 
   it('rejects an unbounded retry count', () => {
@@ -265,6 +269,7 @@ describe('budgetsFromResult', () => {
     expect(budgets.thirdPartyRequests).toEqual({ max: 0, regression: 10, severity: 'warn' });
     expect(budgets.longTasks).toEqual({ max: 10, regression: 20, severity: 'warn' });
     expect(budgets.thirdPartyMainThread).toEqual({ max: 200, regression: 20, severity: 'warn' });
+    expect(budgets.consoleErrors).toEqual({ max: 0, regression: 0 });
     expect(budgets.a11y).toEqual({
       maxViolations: 2,
       maxNew: 0,
@@ -283,6 +288,7 @@ describe('budgetsFromResult', () => {
         thirdPartyBytes: 100_000,
         thirdPartyRequests: 4,
         thirdPartyMainThread: 430,
+        consoleErrors: 4,
       }),
     );
 
@@ -294,6 +300,7 @@ describe('budgetsFromResult', () => {
     expect(budgets.thirdPartyBytes?.max).toBe(307_200);
     expect(budgets.thirdPartyRequests?.max).toBe(20);
     expect(budgets.thirdPartyMainThread?.max).toBe(550);
+    expect(budgets.consoleErrors).toEqual({ max: 4, regression: 0 });
   });
 
   it('derives a long-task budget from the measured count with a floor', () => {

@@ -209,7 +209,8 @@ Next sprint candidates, in order:
 - **Do not rebuild Lighthouse.** No custom trace collector as the primary engine.
 - **No hosted dashboard, account or database.** History is a file or a branch.
 - **No composite GitHub Action.** npx remains the delivery path.
-- **No SEO/best-practices categories by default.** Allow opt-in later if asked.
+- **No SEO category, and no best-practices scores.** The `best-practices` category is audited
+  only for `errors-in-console`; its score is never reported or gated.
 - **No field-data/INP promises.** Pulse is a lab gate; say so in the docs.
 - **No crawl-all-by-default.** Route discovery must be bounded and explicit.
 

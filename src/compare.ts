@@ -45,6 +45,7 @@ const METRIC_SPECS: MetricSpec[] = [
     format: 'ms',
     defaultSeverity: 'warn',
   },
+  { key: 'consoleErrors', label: 'Console errors', format: 'count', defaultSeverity: 'error' },
 ];
 
 function normalizeText(value: string | undefined): string {

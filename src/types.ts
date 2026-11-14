@@ -69,6 +69,7 @@ export interface BudgetSet {
   thirdPartyRequests?: BudgetRule;
   longTasks?: BudgetRule;
   thirdPartyMainThread?: BudgetRule;
+  consoleErrors?: BudgetRule;
   a11y?: A11yBudget;
 }
 
@@ -178,6 +179,16 @@ export interface ThirdPartyCpu {
   transferSize: number;
 }
 
+/** One unique browser console error, as reported by Lighthouse. */
+export interface ConsoleError {
+  description: string;
+  url?: string;
+  /** Zero-indexed, as reported by Lighthouse. */
+  line?: number;
+  /** Zero-indexed, as reported by Lighthouse. */
+  column?: number;
+}
+
 export interface AuditMetrics {
   lcp: number;
   cls: number;
@@ -197,6 +208,7 @@ export interface AuditMetrics {
   longTasks: number;
   /** Main-thread CPU time attributed to third parties, in milliseconds. */
   thirdPartyMainThread: number;
+  consoleErrors: number;
   violations: number;
 }
 
@@ -221,6 +233,8 @@ export interface AuditResult {
   failedRequestDetails?: RequestSummary[];
   /** Top 10 third-party entities by main-thread CPU time. */
   thirdPartyCpu?: ThirdPartyCpu[];
+  /** Top 10 unique browser console errors. Absent when none were reported. */
+  consoleErrorDetails?: ConsoleError[];
 }
 
 export interface ApiMetrics {
