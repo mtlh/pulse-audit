@@ -20,8 +20,12 @@ function metrics(overrides: Partial<AuditMetrics> = {}): AuditMetrics {
     images: 50_000,
     total: 160_000,
     requests: 4,
+    failedRequests: 0,
     thirdPartyBytes: 0,
     thirdPartyRequests: 0,
+    longTasks: 0,
+    thirdPartyMainThread: 0,
+    consoleErrors: 0,
     violations: 1,
     ...overrides,
   };
@@ -79,9 +83,11 @@ const budgets: BudgetSet = {
 const config = { budgets, preset: 'mobile' as const, runs: 3 };
 
 describe('timingBudgetsConfigured', () => {
-  it('ignores inherited timing rules and names configured ones', () => {
+  it('ignores inherited timing rules and names configured Lighthouse-only ones', () => {
     expect(timingBudgetsConfigured(budgets)).toEqual([]);
     expect(timingBudgetsConfigured({ ...budgets, lcp: { regression: 10 } })).toEqual(['lcp']);
+    expect(timingBudgetsConfigured({ ...budgets, longTasks: { max: 5 } })).toEqual(['longTasks']);
+    expect(timingBudgetsConfigured({ ...budgets, consoleErrors: { max: 0 } })).toEqual(['consoleErrors']);
   });
 });
 

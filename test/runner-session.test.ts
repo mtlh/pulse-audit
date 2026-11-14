@@ -27,11 +27,13 @@ interface Harness {
   kill: ReturnType<typeof vi.fn>;
 }
 
-function harness(options: {
-  errors?: string[];
-  delays?: Record<string, number>;
-  lighthouseError?: Error;
-} = {}): Harness {
+function harness(
+  options: {
+    errors?: string[];
+    delays?: Record<string, number>;
+    lighthouseError?: Error;
+  } = {},
+): Harness {
   const kill = vi.fn(async () => {});
   const launchChrome = vi.fn(async () => ({ port: 9333, kill }));
   const lighthouse = vi.fn(async (url: string) => {

@@ -114,6 +114,20 @@ describe('buildReport', () => {
     expect(REPORT_VERSION).toBe('4');
   });
 
+  it('records the audit method and the budgets a fast pre-check enforced', () => {
+    const lighthouse = reportEntry(input(result()));
+    expect(lighthouse.method).toBe('lighthouse');
+    expect(lighthouse.enforcedBudgets).toBeUndefined();
+
+    const fast = reportEntry({
+      ...input(result()),
+      method: 'fast',
+      enforcedBudgets: ['a11y', 'js'],
+    });
+    expect(fast.method).toBe('fast');
+    expect(fast.enforcedBudgets).toEqual(['a11y', 'js']);
+  });
+
   it('removes ignored axe rules from the audit and the a11y checks', () => {
     const current = result({
       metrics: metrics({ violations: 3 }),

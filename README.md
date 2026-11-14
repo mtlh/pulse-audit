@@ -97,6 +97,7 @@ are percentages (`10` or `"10%"`); CLS and counts are numbers.
   "retries": 1,
   "timeoutMs": 45000,
   "warmup": "navigate",
+  "concurrency": 2,
   "urls": [
     "https://example.com/",
     {
@@ -184,7 +185,13 @@ are percentages (`10` or `"10%"`); CLS and counts are numbers.
   measured runs indefinitely.
 - `audit` prints one progress line for the warm-up and for each measured run (`run 1/3 6.2s`),
   so a slow audit is visible in CI instead of looking hung between the start line and the
-  report.
+  report. With more than one URL each line is prefixed with the URL, so overlapping runs stay
+  attributable.
+- `concurrency` is the maximum number of **different URLs** audited at once (default `2`,
+  range `1`–`8`). Runs for one URL always stay sequential, and the report keeps config order.
+  Concurrency `1` reuses one Chrome for every URL in the invocation. Values above `1` use one
+  Chrome plus one worker lane per URL because Chrome allows only one tracing session at a time;
+  set `concurrency: 1` on a small CI runner or when you want the most conservative timings.
 - A rule must set `max` or `regression`; an accessibility rule must set `maxViolations`,
   `maxNew` or `maxNewByImpact`. Inert rules are rejected at load time.
 
@@ -206,6 +213,87 @@ API baselines are ignored when the measured run count changes, just like UI base
 Read [docs/budgets.md](https://github.com/mtlh/pulse-audit/blob/main/docs/budgets.md) for the
 exact pass/fail semantics, impact buckets and `ignoreRules`.
 
+## Speed: Chrome reuse, concurrency and `--fast`
+
+### One Chrome per audit command
+
+`pulse audit` launches Chrome once, warms it up, and reuses it for every URL's warm-up and
+measured runs. `runAudit(url, options)` still launches and kills its own browser, so library
+callers see no change.
+
+Measured on a Windows dev box (16 logical cores, Lighthouse 13.6, Node 24), **4 in-memory
+fixture URLs, 3 runs each, navigate warm-up**:
+
+| Version                     | Wall time | Chrome launches |
+| --------------------------- | --------: | --------------: |
+| Before (one Chrome per URL) |    62.0 s |               4 |
+| After, `--concurrency 1`    |    58.7 s |               1 |
+| After, `--concurrency 2`    |    30.2 s |               2 |
+
+Reusing one Chrome saves about 0.7 s per extra URL; overlapping URLs at concurrency 2 roughly
+halves wall time again. The commands used were:
+
+```bash
+node dist/cli.js audit --concurrency 1   # and --concurrency 2, and the pre-change build
+npx tsx scripts/bench.mjs --fixture 4 --runs 3 --concurrency 2
+```
+
+### Concurrency drift
+
+Lighthouse's `simulate` throttling observes real main-thread work and then simulates the
+network, so parallel Chromes can inflate the observed timings. The default was chosen from
+measurements, not intuition. Median of four URLs, `runs: 3`, navigate warm-up:
+
+| Target  | Concurrency |     LCP |  CLS |  TBT |     FCP |    TTFB |   Bytes | Requests | Wall time |
+| ------- | ----------: | ------: | ---: | ---: | ------: | ------: | ------: | -------: | --------: |
+| Fixture |           1 | 2401 ms | .075 | 0 ms | 1801 ms |  0–1 ms | 391,925 |        4 |    58.3 s |
+| Fixture |           2 | 2401 ms | .075 | 0 ms | 1801 ms |  0–1 ms | 391,925 |        4 |    31.2 s |
+| Fixture |           4 | 2401 ms | .075 | 0 ms | 1801 ms |  0–1 ms | 391,925 |        4 |    18.8 s |
+| Live    |           1 | 1226 ms |    0 | 0 ms | 1002 ms | 20.5 ms |  97,456 |        8 |    64.6 s |
+| Live    |           2 | 1229 ms |    0 | 0 ms | 1004 ms | 22.5 ms |  97,411 |        8 |    35.1 s |
+| Live    |           4 | 1229 ms |    0 | 0 ms | 1010 ms | 21.0 ms |  97,340 |        8 |    21.3 s |
+
+The largest median drift was **+0.25% LCP** at concurrency 2 and 4 on the live page; the TTFB
+change was a 2 ms absolute move on a 20 ms warning-level metric. No pass/fail check flipped at
+any level. The default is **2**: it was the highest level that stays comfortably inside the 5%
+bound while matching the two vCPUs most hosted runners expose. Concurrency 4 also measured
+inside the bound on this 16-core box, but remains opt-in (`--concurrency 4`) because it will
+over-subscribe a small runner. Keep `concurrency: 1` when the timings themselves are the
+subject of the run or the machine has fewer than two free cores.
+
+Reproduce the table:
+
+```bash
+npm run build
+npx tsx scripts/bench.mjs --fixture 4 --runs 3 --concurrency 1 --json
+npx tsx scripts/bench.mjs --url https://mtlh.vercel.app/ --runs 3 --concurrency 2 --json
+```
+
+`scripts/bench.mjs` prints Chrome/import startup, each warm-up and measured run, browser
+shutdown and report assembly, plus the resulting metrics.
+
+### `--fast` (opt-in local pre-check)
+
+`pulse audit --fast` loads the page once in Chrome, measures the byte/request profile and runs
+the exact axe bundle Lighthouse depends on. It skips the 5–6 s Lighthouse pipeline only when it
+can prove the result is safe:
+
+- a comparable baseline must exist, and the axe rule/node-count fingerprint must match it;
+- every configured size/count budget must be comfortably inside its max (not within 10%) and
+  inside its regression tolerance;
+- if any timing metric (`lcp`, `cls`, `tbt`, `fcp`, `ttfb`), `failedRequests`, `longTasks`,
+  `thirdPartyMainThread` or `consoleErrors` has a budget, the pre-check escalates immediately,
+  because those numbers cannot be compared to a Lighthouse baseline without Lighthouse;
+- any navigation error, changed a11y finding, near-limit budget or missing baseline escalates
+  to a full Lighthouse run for that URL.
+
+The command always prints a warning because performance budgets are **not fully enforced** in
+this mode. `--fast` never writes a baseline (`--update-baseline` is ignored with a warning), and
+fast report entries carry `method: "fast"` plus the `enforcedBudgets` list in terminal, HTML,
+Markdown and JSON output. Do not use it in CI examples; it exists for local dev loops where a
+clean size/a11y-only config can skip Lighthouse. `--fast` runs URLs one at a time and ignores
+`--concurrency`.
+
 ## CLI
 
 ```
@@ -224,6 +312,8 @@ pulse audit [url]           Audit and compare
       --retries <n>         Extra attempts after a failed Lighthouse run or API request
       --timeout <ms>        Lighthouse maxWaitForLoad and API request timeout
       --warmup <mode>       Warm-up for page runs: navigate (default), full or none
+      --concurrency <n>     Audit up to n page URLs at once (default 2, range 1-8)
+      --fast                Cheap local pre-check; escalates when it cannot prove a clean result
       --github-output       Write report-path and counts to $GITHUB_OUTPUT
       --update-baseline     Save this run as the baseline
       --json                Print only the report JSON to stdout
@@ -247,7 +337,11 @@ pulse doctor                Check Node, Chrome, config, baseline, report dir and
 
 `--json` keeps stdout machine-readable: the report is the only thing printed there, while
 progress, paths and warnings go to stderr. `--quiet` suppresses the table, paths and warnings
-but keeps errors and a failure line; JSON output still prints.
+but keeps errors and a failure line; JSON output still prints. The `--fast` warning is always
+printed, even with `--quiet` or `--json`, because it changes what the gate enforces.
+
+`--fast` is deliberately excluded from the CI examples: it is a local pre-check, not a
+replacement for the full Lighthouse gate.
 
 ### Exit codes
 
@@ -276,6 +370,16 @@ audit.
   endpoints. `presets`, expanded metrics and samples are retained.
 - `--summary` now replaces its `<!-- pulse:start -->` block instead of appending a duplicate
   section.
+
+## Report schema v4
+
+`PulseReport.version` is `"4"`. Each UI report entry now also carries:
+
+- `method`: `"lighthouse"` or `"fast"`.
+- `enforcedBudgets`: the budget metrics a fast pre-check actually checked. Absent for
+  Lighthouse entries.
+
+Baselines are still version 3; the report version is independent of the baseline format.
 
 ## Use in CI
 
@@ -316,13 +420,16 @@ the version for review, approve it on npmjs.com and re-run the workflow.
 npm test          # unit tests + no-Chrome user flows
 npm run test:e2e  # fixture audits, baseline flow, packed install
 npm run battle-test  # live portfolio sequence
+npm run bench -- --fixture 4 --runs 3 --concurrency 2  # per-phase timings
 ```
 
 The E2E suite uses a deterministic local fixture (`test/flows/fixture.ts`) with a slow hero
 image, injected layout shift, missing alt text and a 220 KB script. Chrome is required;
-`npm test` skips those flows when `PULSE_E2E` is not set. `npm run battle-test` writes
+`npm test` skips those flows when `PULSE_E2E` is not set. `npm run test:e2e` also covers
+multi-URL concurrency and the `--fast` escalation path. `npm run battle-test` writes
 `.pulse/battle-test.md` with the derived minimums, verified metrics and forced-regression
-result.
+result. Benchmark the local fixture with `npx tsx scripts/bench.mjs --fixture 4` or point it at
+a URL/config with `--url` / `--config`.
 
 ## Layout
 
@@ -334,7 +441,10 @@ src/
   version.ts        version read from package.json
   config.ts         zod schema, units, defaults and per-URL resolution
   auth.ts           ${ENV_VAR} expansion, bearer/basic headers
-  runner.ts         chrome-launcher + Lighthouse, median of N
+  runner.ts         chrome-launcher + Lighthouse, audit session, worker lanes, median of N
+  audit-worker.ts   one concurrency lane: its own Chrome and Lighthouse module
+  scheduler.ts      bounded, order-preserving concurrency
+  fast.ts           opt-in axe/network pre-check and escalation rules
   api.ts            authenticated fetch timing, median of N
   extract.ts        LHR → the metrics Pulse cares about
   compare.ts        budget + baseline evaluation for UI and API

@@ -26,7 +26,22 @@ const sendError = (item: WorkItem, error: unknown): void => {
   });
 };
 
-let session;
+let shuttingDown = false;
+let session: Awaited<ReturnType<typeof createAuditSession>> | undefined;
+const closeSession = async (): Promise<void> => {
+  try {
+    await session?.close();
+  } catch {
+    // The browser is already gone; the caller is exiting anyway.
+  }
+};
+
+port.on('message', (message: { type?: string } | undefined) => {
+  if (message?.type !== 'shutdown') return;
+  shuttingDown = true;
+  void closeSession().then(() => port.postMessage({ type: 'done' }));
+});
+
 try {
   session = await createAuditSession();
 } catch (error) {
@@ -37,6 +52,7 @@ try {
 
 try {
   for (const item of items) {
+    if (shuttingDown) break;
     port.postMessage({ type: 'start', index: item.index });
     try {
       const result = await session.auditTarget(item.url, {
@@ -49,6 +65,6 @@ try {
     }
   }
 } finally {
-  await session.close();
+  await closeSession();
   port.postMessage({ type: 'done' });
 }

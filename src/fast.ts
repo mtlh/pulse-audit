@@ -15,8 +15,22 @@ import type {
 import { resolveAuthHeaders } from './auth.js';
 import { lighthouseMajor } from './baseline.js';
 
-/** Metrics only a Lighthouse trace can measure comparably to a stored baseline. */
-const TIMING_METRICS = ['lcp', 'cls', 'tbt', 'fcp', 'ttfb'] as const;
+/**
+ * Metrics only a full Lighthouse run can measure comparably to a stored
+ * baseline. The cheap path measures network sizes and axe only, so a configured
+ * budget on any of these escalates instead of guessing.
+ */
+const TIMING_METRICS = [
+  'lcp',
+  'cls',
+  'tbt',
+  'fcp',
+  'ttfb',
+  'failedRequests',
+  'longTasks',
+  'thirdPartyMainThread',
+  'consoleErrors',
+] as const;
 
 /** Metrics the cheap pre-check can measure from network events. */
 const SIZE_METRICS = [
@@ -71,8 +85,12 @@ function emptyMetrics(): AuditMetrics {
     images: 0,
     total: 0,
     requests: 0,
+    failedRequests: 0,
     thirdPartyBytes: 0,
     thirdPartyRequests: 0,
+    longTasks: 0,
+    thirdPartyMainThread: 0,
+    consoleErrors: 0,
     violations: 0,
   };
 }
@@ -166,8 +184,7 @@ export function decideFastPath(input: FastDecisionInput): FastDecision {
 
     if (a11yRule.maxViolations !== undefined) {
       const total = measurement.metrics.violations;
-      const near =
-        a11yRule.maxViolations === 0 ? total > 0 : total >= a11yRule.maxViolations * 0.9;
+      const near = a11yRule.maxViolations === 0 ? total > 0 : total >= a11yRule.maxViolations * 0.9;
       if (near) {
         reasons.push(
           total > a11yRule.maxViolations
@@ -189,9 +206,7 @@ export function decideFastPath(input: FastDecisionInput): FastDecision {
       // snapshot and a full run, so confirm it with Lighthouse.
       const near = rule.max === 0 ? value > 0 : value >= rule.max * 0.9;
       if (near) {
-        reasons.push(
-          value > rule.max ? `${key} exceeds its max` : `${key} is within 10% of its max`,
-        );
+        reasons.push(value > rule.max ? `${key} exceeds its max` : `${key} is within 10% of its max`);
       }
     }
 
@@ -376,10 +391,7 @@ interface Cdpsession {
 
 interface FastPage {
   setExtraHTTPHeaders(headers: Record<string, string>): Promise<void>;
-  goto(
-    url: string,
-    options: { waitUntil: 'load'; timeout: number },
-  ): Promise<{ status(): number } | null>;
+  goto(url: string, options: { waitUntil: 'load'; timeout: number }): Promise<{ status(): number } | null>;
   waitForNetworkIdle?(options: { idleTime: number; timeout: number }): Promise<void>;
   evaluate(expression: string): Promise<unknown>;
   evaluate<T>(fn: (...args: any[]) => T, ...args: any[]): Promise<T>;
@@ -485,53 +497,46 @@ export async function measureFast(options: FastPrecheckOptions): Promise<FastPre
         .catch(() => {});
 
       await page.evaluate(axe.source);
-      const rawViolations = await page.evaluate(
-        async (axeOptions: unknown) => {
-          // This callback is serialized and runs in the page, where the CDP
-          // browser globals exist but the Node tsconfig has no DOM lib.
-          const globals = globalThis as any;
-          const axeGlobal = globals.axe;
-          axeGlobal.configure({ branding: { application: 'pulse-fast' }, noHtml: true });
-          const results = await axeGlobal.run(globals.document, axeOptions);
-          return results.violations.map((violation: any) => ({
-            id: String(violation.id),
-            help: String(violation.help ?? violation.id),
-            impact: violation.impact ?? null,
-            nodes: (violation.nodes ?? []).map((node: any) => ({
-              target: Array.isArray(node.target) ? node.target.map(String) : [],
-              html:
-                typeof node.element?.outerHTML === 'string'
-                  ? node.element.outerHTML.slice(0, 500)
-                  : undefined,
-              impact: node.impact ?? null,
-              failureSummary: node.failureSummary,
-            })),
-          }));
-        },
-        AXE_OPTIONS,
-      );
+      const rawViolations = await page.evaluate(async (axeOptions: unknown) => {
+        // This callback is serialized and runs in the page, where the CDP
+        // browser globals exist but the Node tsconfig has no DOM lib.
+        const globals = globalThis as any;
+        const axeGlobal = globals.axe;
+        axeGlobal.configure({ branding: { application: 'pulse-fast' }, noHtml: true });
+        const results = await axeGlobal.run(globals.document, axeOptions);
+        return results.violations.map((violation: any) => ({
+          id: String(violation.id),
+          help: String(violation.help ?? violation.id),
+          impact: violation.impact ?? null,
+          nodes: (violation.nodes ?? []).map((node: any) => ({
+            target: Array.isArray(node.target) ? node.target.map(String) : [],
+            html:
+              typeof node.element?.outerHTML === 'string' ? node.element.outerHTML.slice(0, 500) : undefined,
+            impact: node.impact ?? null,
+            failureSummary: node.failureSummary,
+          })),
+        }));
+      }, AXE_OPTIONS);
 
-      const violations: A11yViolation[] = (rawViolations as AxeViolationResult[]).map(
-        (violation) => {
-          const nodes: A11yNode[] = violation.nodes
-            .map((node) => {
-              const selector = node.target?.[0] ?? '';
-              return {
-                selector,
-                snippet: node.html,
-                impact: isImpact(node.impact) ? node.impact : undefined,
-                failureSummary: node.failureSummary,
-              };
-            })
-            .filter((node) => node.selector.length > 0);
-          return {
-            id: violation.id,
-            title: violation.help,
-            impact: isImpact(violation.impact) ? violation.impact : 'serious',
-            nodes,
-          };
-        },
-      );
+      const violations: A11yViolation[] = (rawViolations as AxeViolationResult[]).map((violation) => {
+        const nodes: A11yNode[] = violation.nodes
+          .map((node) => {
+            const selector = node.target?.[0] ?? '';
+            return {
+              selector,
+              snippet: node.html,
+              impact: isImpact(node.impact) ? node.impact : undefined,
+              failureSummary: node.failureSummary,
+            };
+          })
+          .filter((node) => node.selector.length > 0);
+        return {
+          id: violation.id,
+          title: violation.help,
+          impact: isImpact(violation.impact) ? violation.impact : 'serious',
+          nodes,
+        };
+      });
 
       const requests = resourceBytes(responses, sizes, options.url);
       const thirdParty = requests.filter((request) => request.thirdParty);

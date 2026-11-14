@@ -42,8 +42,9 @@ function parseArgs(argv) {
 
 const options = parseArgs(process.argv.slice(2));
 if (options.help) {
-  console.log(`Usage: node scripts/bench.mjs --url <url> [...] [--runs 3] [--concurrency 1]
-       node scripts/bench.mjs --config .pulse.json [--runs 3] [--concurrency 1]`);
+  console.log(`Usage: node scripts/bench.mjs --url <url> [...] [--runs 3] [--concurrency 2]
+       node scripts/bench.mjs --config .pulse.json [--runs 3] [--concurrency 2]
+       npx tsx scripts/bench.mjs --fixture 4 [--runs 3] [--concurrency 2]`);
   process.exit(0);
 }
 if (options.fixture !== undefined) {
@@ -204,7 +205,9 @@ console.log('Pulse benchmark');
 console.log(
   `  ${pages.length} target(s) · ${result.runs} run(s) · concurrency ${concurrency} · ${result.warmup} warm-up`,
 );
-console.log(`  chrome + lighthouse import  ${ms(sessionMs)}`);
+console.log(
+  `  ${concurrency === 1 ? 'chrome + lighthouse import ' : 'main-thread setup        '}  ${ms(sessionMs)}`,
+);
 console.log(`  audit wall clock            ${ms(auditMs)}`);
 console.log(`  browser close               ${ms(closeMs)}`);
 console.log(`  report assembly             ${reportMs.toFixed(2)}ms`);

@@ -301,9 +301,8 @@ program
       const { renderMarkdown, upsertSummary } = await import('./reporters/summary.js');
       const { printReport } = await import('./reporters/terminal.js');
       const { auditTargets, createAuditSession } = await import('./runner.js');
-      const { decideFastPath, fastAuditResult, installedLighthouseVersion, measureFast } = await import(
-        './fast.js'
-      );
+      const { decideFastPath, fastAuditResult, installedLighthouseVersion, measureFast } =
+        await import('./fast.js');
 
       if (url !== undefined) assertHttpUrl(url);
       const config: PulseConfig = await loadConfig(options.config);
@@ -384,9 +383,7 @@ program
 
       let effectiveConcurrency = Math.min(config.concurrency ?? 1, Math.max(1, pages.length));
       if (useFast && effectiveConcurrency > 1) {
-        console.error(
-          pc.yellow('note: --fast runs one URL at a time; ignoring --concurrency for this run.'),
-        );
+        console.error(pc.yellow('note: --fast runs one URL at a time; ignoring --concurrency for this run.'));
         effectiveConcurrency = 1;
       }
 
@@ -460,23 +457,34 @@ program
         };
       });
 
+      const abort = new AbortController();
       let session: AuditSession | undefined;
       let outcomes: Awaited<ReturnType<typeof auditTargets>> = [];
 
-      if (pageTargets.length > 0) {
-        if (effectiveConcurrency === 1) {
-          try {
-            session = await createAuditSession();
-          } catch (error) {
-            const message = error instanceof Error ? error.message : String(error);
-            for (const page of pages) errors.push({ url: targetUrl(page), message });
-          }
-        }
+      const onSignal = (): void => {
+        abort.abort();
+        // Killing the browser makes an in-flight Lighthouse run reject, so the
+        // normal finally blocks can finish instead of leaving Chrome behind.
+        if (session) void session.close();
+      };
+      process.once('SIGINT', onSignal);
+      process.once('SIGTERM', onSignal);
 
-        if (session || effectiveConcurrency > 1) {
-          try {
+      try {
+        if (pageTargets.length > 0) {
+          if (effectiveConcurrency === 1) {
+            try {
+              session = await createAuditSession();
+            } catch (error) {
+              const message = error instanceof Error ? error.message : String(error);
+              for (const page of pages) errors.push({ url: targetUrl(page), message });
+            }
+          }
+
+          if ((session || effectiveConcurrency > 1) && !abort.signal.aborted) {
             outcomes = await auditTargets(session, pageTargets, {
               concurrency: effectiveConcurrency,
+              signal: abort.signal,
               onProgress: reportProgress,
               onTargetStart: (target) => {
                 const page = pages[pageTargets.indexOf(target)];
@@ -485,10 +493,18 @@ program
                 );
               },
             });
-          } finally {
-            if (session) await session.close();
           }
         }
+      } finally {
+        process.removeListener('SIGINT', onSignal);
+        process.removeListener('SIGTERM', onSignal);
+        if (session) await session.close();
+      }
+
+      if (abort.signal.aborted) {
+        console.error(pc.yellow('Audit interrupted; browsers closed.'));
+        process.exitCode = 130;
+        return;
       }
 
       for (let index = 0; index < outcomes.length; index += 1) {

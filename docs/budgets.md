@@ -193,6 +193,11 @@ when more than one sample exists.
 - If a metric swings by more than 10% between identical runs, widen its budget instead of
   disabling the check; a flaky gate teaches people to ignore it.
 - Use the spread line to tell a real regression from noise before tightening a budget.
+- `--concurrency` only overlaps different URLs; runs for one URL stay sequential and the report
+  keeps config order. The default is 2 based on measured drift; use 1 on a small or busy runner.
+- A `--fast` report entry has `method: "fast"` and lists its `enforcedBudgets`. Only those
+  budgets ran; any timing/console/failed-request/long-task budget escalates to Lighthouse, and a
+  fast entry is never written to a baseline.
 
 ## Accessibility
 

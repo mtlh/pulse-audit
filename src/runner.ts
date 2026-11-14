@@ -179,7 +179,13 @@ export interface AuditTargetSpec {
 }
 
 export type AuditTargetOutcome =
-  | { url: string; status: 'ok'; result: AuditResult; method?: 'lighthouse' | 'fast'; enforcedBudgets?: string[] }
+  | {
+      url: string;
+      status: 'ok';
+      result: AuditResult;
+      method?: 'lighthouse' | 'fast';
+      enforcedBudgets?: string[];
+    }
   | { url: string; status: 'error'; error: string };
 
 export interface AuditTargetsOptions {
@@ -189,6 +195,8 @@ export interface AuditTargetsOptions {
   onTargetStart?: (target: AuditTargetSpec) => void;
   /** Progress forwarded from a concurrent worker. */
   onProgress?: (event: AuditProgressEvent) => void;
+  /** Aborting asks worker lanes to close their browsers and stop. */
+  signal?: AbortSignal;
 }
 
 function richerText(current: string | undefined, next: string | undefined): string | undefined {
@@ -539,10 +547,31 @@ async function auditTargetsInWorkers(
   const outcomes = new Array<AuditTargetOutcome | undefined>(targets.length);
   const lanes = Math.min(concurrency, targets.length);
   const batches: WorkerItem[][] = Array.from({ length: lanes }, () => []);
+  const workers = new Set<InstanceType<typeof Worker>>();
 
   targets.forEach((target, index) => {
     batches[index % lanes].push({ index, url: target.url, options: target.options! });
   });
+
+  const shutdown = (): void => {
+    for (const worker of workers) {
+      try {
+        worker.postMessage({ type: 'shutdown' });
+      } catch {
+        // The lane already exited.
+      }
+    }
+    // A stuck worker must not keep the process alive forever.
+    const timer = setTimeout(() => {
+      for (const worker of workers) void worker.terminate().catch(() => {});
+    }, 2_000);
+    timer.unref();
+  };
+
+  if (options.signal) {
+    if (options.signal.aborted) shutdown();
+    else options.signal.addEventListener('abort', shutdown, { once: true });
+  }
 
   await Promise.all(
     batches.map(
@@ -552,20 +581,30 @@ async function auditTargetsInWorkers(
             workerData: { items: batch },
             execArgv: process.execArgv,
           });
+          workers.add(worker);
           let finished = false;
 
           const finish = (): void => {
             if (finished) return;
             finished = true;
+            workers.delete(worker);
             for (const item of batch) {
               outcomes[item.index] ??= {
                 url: item.url,
                 status: 'error',
-                error: 'Worker exited before returning a result',
+                error: options.signal?.aborted ? 'Audit aborted' : 'Worker exited before returning a result',
               };
             }
             resolve();
           };
+
+          if (options.signal?.aborted) {
+            try {
+              worker.postMessage({ type: 'shutdown' });
+            } catch {
+              // Already gone.
+            }
+          }
 
           worker.on('message', (message: WorkerMessage) => {
             if (message.type === 'start') {
@@ -613,6 +652,7 @@ async function auditTargetsInWorkers(
     ),
   );
 
+  options.signal?.removeEventListener('abort', shutdown);
   return outcomes as AuditTargetOutcome[];
 }
 
