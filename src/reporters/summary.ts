@@ -1,7 +1,7 @@
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
-import { dirname } from 'node:path';
-import { formatDelta, formatPercent, formatValue, noteworthyReason } from '../format.js';
+import { checkNotes, checkViews } from '../checks.js';
+import { formatValue } from '../format.js';
 import type { Check, PulseReport, ReportEntry, RequestSummary } from '../types.js';
+import { readTextIfPresent, writeTextFile } from '../util/files.js';
 import { apiSpreadParts, spreadParts } from './spread.js';
 
 const SUMMARY_START = '<!-- pulse:start -->';
@@ -37,18 +37,17 @@ function consoleErrorLine(entry: ReportEntry): string | undefined {
 
 function checkTable(checks: Check[]): string[] {
   const lines = ['| Check | Result | Budget | vs baseline | Status |', '| --- | ---: | ---: | ---: | --- |'];
-
-  for (const check of checks) {
-    const budget = check.max === undefined ? '—' : formatValue(check.max, check.format);
-    const delta =
-      check.delta === undefined
-        ? '—'
-        : `${formatDelta(check.delta, check.format)} (${formatPercent(check.deltaPct)})`;
-    const status = check.status === 'pass' ? 'pass' : check.status.toUpperCase();
-    lines.push(`| ${check.label} | ${check.formatted} | ${budget} | ${delta} | ${status} |`);
+  for (const view of checkViews(checks)) {
+    lines.push(
+      `| ${view.label} | ${view.value} | ${view.budget} | ${view.deltaSummary} | ${view.statusLabel} |`,
+    );
   }
-
   return lines;
+}
+
+/** Bulleted notes for checks whose status alone would hide a problem. */
+function noteLines(checks: Check[]): string[] {
+  return checkNotes(checks).flatMap((note) => ['', `- **${note.label}**: ${note.reason}`]);
 }
 
 export function renderMarkdown(report: PulseReport): string {
@@ -74,10 +73,7 @@ export function renderMarkdown(report: PulseReport): string {
     const spread = spreadLine(spreadParts(entry));
     if (spread) lines.push('', spread);
 
-    const notes = entry.checks
-      .map((check) => ({ label: check.label, reason: noteworthyReason(check) }))
-      .filter((note): note is { label: string; reason: string } => note.reason !== undefined);
-    for (const note of notes) lines.push('', `- **${note.label}**: ${note.reason}`);
+    lines.push(...noteLines(entry.checks));
 
     for (const request of (entry.audit.failedRequestDetails ?? []).slice(0, 5)) {
       lines.push('', failedRequestBullet(request));
@@ -128,25 +124,12 @@ export function renderMarkdown(report: PulseReport): string {
       const spread = spreadLine(apiSpreadParts(entry));
       if (spread) lines.push('', spread);
 
-      const notes = entry.checks
-        .map((check) => ({ label: check.label, reason: noteworthyReason(check) }))
-        .filter((note): note is { label: string; reason: string } => note.reason !== undefined);
-      for (const note of notes) lines.push('', `- **${note.label}**: ${note.reason}`);
-
+      lines.push(...noteLines(entry.checks));
       lines.push('');
     }
   }
 
   return `${lines.join('\n')}\n`;
-}
-
-async function readIfPresent(path: string): Promise<string> {
-  try {
-    return await readFile(path, 'utf8');
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return '';
-    throw error;
-  }
 }
 
 /**
@@ -155,7 +138,7 @@ async function readIfPresent(path: string): Promise<string> {
  * byte (apart from the single newline that separates it from the block).
  */
 export async function upsertSummary(path: string, markdown: string): Promise<void> {
-  const existing = await readIfPresent(path);
+  const existing = (await readTextIfPresent(path)) ?? '';
   const block = `${SUMMARY_START}\n${markdown.trimEnd()}\n${SUMMARY_END}\n`;
 
   const start = existing.indexOf(SUMMARY_START);
@@ -185,6 +168,5 @@ export async function upsertSummary(path: string, markdown: string): Promise<voi
 
   if (before.length > 0 && !before.endsWith('\n')) before += '\n';
 
-  await mkdir(dirname(path), { recursive: true });
-  await writeFile(path, `${before}${block}${after}`, 'utf8');
+  await writeTextFile(path, `${before}${block}${after}`);
 }

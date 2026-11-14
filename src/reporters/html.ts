@@ -1,14 +1,7 @@
-import { mkdir, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import { checkNotes, checkViews, countChecks, findCheck, type CheckView } from '../checks.js';
 import { countViolationNodes, countViolationNodesByImpact } from '../compare.js';
-import {
-  escapeHtml,
-  formatBytes,
-  formatDelta,
-  formatPercent,
-  formatValue,
-  noteworthyReason,
-} from '../format.js';
+import { escapeHtml, formatBytes, formatPercent, formatValue } from '../format.js';
 import type {
   A11yImpact,
   A11yViolation,
@@ -22,6 +15,7 @@ import type {
   ThirdPartyCpu,
 } from '../types.js';
 import { IMPACT_ORDER } from '../util/a11y.js';
+import { writeTextFile } from '../util/files.js';
 import { VERSION } from '../version.js';
 import { apiSpreadRows, spreadRows } from './spread.js';
 
@@ -29,23 +23,21 @@ function statusPill(check: Check): string {
   return `<span class="pill ${check.status}">${check.status}</span>`;
 }
 
-function deltaCell(check: Check): string {
-  if (check.delta === undefined) {
+function deltaCell(view: CheckView): string {
+  if (!view.hasDelta) {
     // A status check has a baseline but no meaningful numeric delta.
-    return `<span class="muted">${check.baseline === undefined ? 'no baseline' : '—'}</span>`;
+    return `<span class="muted">${view.hasBaseline ? '—' : 'no baseline'}</span>`;
   }
-  return `<span class="delta ${check.delta > 0 ? 'up' : check.delta < 0 ? 'down' : ''}">${escapeHtml(
-    formatDelta(check.delta, check.format),
-  )}</span> <span class="muted">${escapeHtml(formatPercent(check.deltaPct))}</span>`;
+  const delta = view.check.delta ?? 0;
+  const direction = delta > 0 ? 'up' : delta < 0 ? 'down' : '';
+  return `<span class="delta ${direction}">${escapeHtml(view.deltaText)}</span> <span class="muted">${escapeHtml(
+    view.deltaPctText,
+  )}</span>`;
 }
 
-function budgetCell(check: Check): string {
-  if (check.max === undefined) return '<span class="muted">—</span>';
-  return escapeHtml(formatValue(check.max, check.format));
-}
-
-function findCheck(entry: { checks: Check[] }, metric: string): Check | undefined {
-  return entry.checks.find((check) => check.metric === metric);
+function budgetCell(view: CheckView): string {
+  if (view.check.max === undefined) return '<span class="muted">—</span>';
+  return escapeHtml(view.budget);
 }
 
 function metricValue(entry: ReportEntry, metric: 'lcp' | 'cls'): string {
@@ -55,21 +47,19 @@ function metricValue(entry: ReportEntry, metric: 'lcp' | 'cls'): string {
 }
 
 function renderChecks(checks: Check[]): string {
-  const rows = checks
+  const rows = checkViews(checks)
     .map(
-      (check) => `<tr>
-        <td class="metric">${escapeHtml(check.label)}</td>
-        <td class="value">${escapeHtml(check.formatted)}</td>
-        <td>${deltaCell(check)}</td>
-        <td class="muted">${budgetCell(check)}</td>
-        <td>${statusPill(check)}</td>
+      (view) => `<tr>
+        <td class="metric">${escapeHtml(view.label)}</td>
+        <td class="value">${escapeHtml(view.value)}</td>
+        <td>${deltaCell(view)}</td>
+        <td class="muted">${budgetCell(view)}</td>
+        <td>${statusPill(view.check)}</td>
       </tr>`,
     )
     .join('');
 
-  const notes = checks
-    .map((check) => ({ label: check.label, reason: noteworthyReason(check) }))
-    .filter((note): note is { label: string; reason: string } => note.reason !== undefined)
+  const notes = checkNotes(checks)
     .map((note) => `<li><strong>${escapeHtml(note.label)}</strong> — ${escapeHtml(note.reason)}</li>`)
     .join('');
 
@@ -499,11 +489,7 @@ function renderApiEntry(entry: ApiReportEntry, index: number): string {
 }
 
 function entryCounts(entry: { checks: Check[] }): { failed: number; warned: number; passed: number } {
-  return {
-    failed: entry.checks.filter((check) => check.status === 'fail').length,
-    warned: entry.checks.filter((check) => check.status === 'warn').length,
-    passed: entry.checks.filter((check) => check.status === 'pass').length,
-  };
+  return countChecks(entry.checks);
 }
 
 function renderCrossSummary(report: PulseReport): string {
@@ -706,8 +692,7 @@ export function renderHtml(report: PulseReport): string {
 }
 
 export async function writeHtmlReport(report: PulseReport, outDir: string): Promise<string> {
-  await mkdir(outDir, { recursive: true });
   const path = join(outDir, 'report.html');
-  await writeFile(path, renderHtml(report), 'utf8');
+  await writeTextFile(path, renderHtml(report));
   return path;
 }

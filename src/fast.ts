@@ -1,11 +1,17 @@
 import { countViolationNodes } from './compare.js';
+import {
+  auditMetrics,
+  budgetRuleConfigured,
+  FAST_SIZE_METRICS,
+  FAST_TIMING_METRICS,
+  type AuditMetricDefinitionKey,
+} from './metrics.js';
 import type {
   A11yNode,
   A11yViolation,
   AuditMetrics,
   AuditResult,
   AuthConfig,
-  A11yImpact,
   BudgetSet,
   Preset,
   RequestSummary,
@@ -13,37 +19,8 @@ import type {
 import { resolveAuthHeaders } from './auth.js';
 import { lighthouseMajor } from './baseline.js';
 import { LIGHTHOUSE_VERSION } from './lighthouse-version.js';
-
-/**
- * Metrics only a full Lighthouse run can measure comparably to a stored
- * baseline. The cheap path measures network sizes and axe only, so a configured
- * budget on any of these escalates instead of guessing.
- */
-const TIMING_METRICS = [
-  'lcp',
-  'cls',
-  'tbt',
-  'fcp',
-  'ttfb',
-  'failedRequests',
-  'longTasks',
-  'thirdPartyMainThread',
-  'consoleErrors',
-] as const;
-
-/** Metrics the cheap pre-check can measure from network events. */
-const SIZE_METRICS = [
-  'js',
-  'css',
-  'fonts',
-  'images',
-  'total',
-  'requests',
-  'thirdPartyBytes',
-  'thirdPartyRequests',
-] as const;
-
-type TimingMetric = (typeof TIMING_METRICS)[number];
+import { isA11yImpact } from './util/a11y.js';
+import { sameOrigin, sumRequestBytes } from './util/requests.js';
 
 export interface FastMeasurement {
   url: string;
@@ -71,34 +48,8 @@ export interface FastDecision {
   enforcedBudgets: string[];
 }
 
-function emptyMetrics(): AuditMetrics {
-  return {
-    lcp: 0,
-    cls: 0,
-    tbt: 0,
-    fcp: 0,
-    ttfb: 0,
-    js: 0,
-    css: 0,
-    fonts: 0,
-    images: 0,
-    total: 0,
-    requests: 0,
-    failedRequests: 0,
-    thirdPartyBytes: 0,
-    thirdPartyRequests: 0,
-    longTasks: 0,
-    thirdPartyMainThread: 0,
-    consoleErrors: 0,
-    violations: 0,
-  };
-}
-
-export function timingBudgetsConfigured(budgets: BudgetSet): TimingMetric[] {
-  return TIMING_METRICS.filter((key) => {
-    const rule = budgets[key];
-    return rule !== undefined && (rule.max !== undefined || rule.regression !== undefined);
-  });
+export function timingBudgetsConfigured(budgets: BudgetSet): AuditMetricDefinitionKey[] {
+  return FAST_TIMING_METRICS.filter((key) => budgetRuleConfigured(budgets[key]));
 }
 
 /**
@@ -194,9 +145,9 @@ export function decideFastPath(input: FastDecisionInput): FastDecision {
     }
   }
 
-  for (const key of SIZE_METRICS) {
+  for (const key of FAST_SIZE_METRICS) {
     const rule = config.budgets[key];
-    if (!rule || (rule.max === undefined && rule.regression === undefined)) continue;
+    if (!budgetRuleConfigured(rule)) continue;
     enforcedBudgets.push(key);
 
     const value = measurement.metrics[key];
@@ -240,8 +191,8 @@ export function fastAuditResult(
   metricKeys: readonly string[],
   baseline?: AuditResult | null,
 ): AuditResult {
-  const metrics = { ...emptyMetrics() };
-  for (const key of SIZE_METRICS) metrics[key] = measurement.metrics[key];
+  const metrics = auditMetrics();
+  for (const key of FAST_SIZE_METRICS) metrics[key] = measurement.metrics[key];
 
   // The cheap path proves the rule/count set matches the baseline but axe and
   // Lighthouse generate different selectors. Reuse the baseline's node details
@@ -354,10 +305,6 @@ const AXE_OPTIONS = {
   rules: AXE_RULES,
 };
 
-function isImpact(value: unknown): value is A11yImpact {
-  return value === 'critical' || value === 'serious' || value === 'moderate' || value === 'minor';
-}
-
 interface AxeNodeResult {
   target?: string[];
   html?: string;
@@ -410,14 +357,6 @@ interface PuppeteerModule {
   connect(options: { browserURL: string }): Promise<FastBrowser>;
 }
 
-function sameOrigin(candidate: string, pageUrl: string): boolean {
-  try {
-    return new URL(candidate).origin === new URL(pageUrl).origin;
-  } catch {
-    return true;
-  }
-}
-
 function resourceBytes(
   responses: Map<string, { url: string; type: string; status: number }>,
   sizes: Map<string, number>,
@@ -434,12 +373,6 @@ function resourceBytes(
     });
   }
   return requests;
-}
-
-function sumBytes(requests: RequestSummary[], type?: string): number {
-  return requests
-    .filter((request) => type === undefined || request.resourceType.toLowerCase() === type.toLowerCase())
-    .reduce((total, request) => total + request.bytes, 0);
 }
 
 export interface FastPrecheckOptions {
@@ -535,7 +468,7 @@ export async function measureFast(options: FastPrecheckOptions): Promise<FastPre
             return {
               selector,
               snippet: node.html,
-              impact: isImpact(node.impact) ? node.impact : undefined,
+              impact: isA11yImpact(node.impact) ? node.impact : undefined,
               failureSummary: node.failureSummary,
             };
           })
@@ -543,21 +476,21 @@ export async function measureFast(options: FastPrecheckOptions): Promise<FastPre
         return {
           id: violation.id,
           title: violation.help,
-          impact: isImpact(violation.impact) ? violation.impact : 'serious',
+          impact: isA11yImpact(violation.impact) ? violation.impact : 'serious',
           nodes,
         };
       });
 
       const requests = resourceBytes(responses, sizes, options.url);
       const thirdParty = requests.filter((request) => request.thirdParty);
-      const metrics = emptyMetrics();
-      metrics.js = sumBytes(requests, 'Script');
-      metrics.css = sumBytes(requests, 'Stylesheet');
-      metrics.fonts = sumBytes(requests, 'Font');
-      metrics.images = sumBytes(requests, 'Image');
-      metrics.total = sumBytes(requests);
+      const metrics = auditMetrics();
+      metrics.js = sumRequestBytes(requests, 'Script');
+      metrics.css = sumRequestBytes(requests, 'Stylesheet');
+      metrics.fonts = sumRequestBytes(requests, 'Font');
+      metrics.images = sumRequestBytes(requests, 'Image');
+      metrics.total = sumRequestBytes(requests);
       metrics.requests = requests.length;
-      metrics.thirdPartyBytes = sumBytes(thirdParty);
+      metrics.thirdPartyBytes = sumRequestBytes(thirdParty);
       metrics.thirdPartyRequests = thirdParty.length;
       metrics.violations = countViolationNodes({ violations });
 

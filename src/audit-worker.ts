@@ -1,5 +1,6 @@
 import { parentPort, workerData } from 'node:worker_threads';
 import { createAuditSession, type AuditOptions } from './runner.js';
+import { errorMessage } from './util/errors.js';
 
 /**
  * One concurrency lane. Lighthouse's trace engine and logger are process-global,
@@ -22,7 +23,7 @@ const sendError = (item: WorkItem, error: unknown): void => {
   port.postMessage({
     type: 'error',
     index: item.index,
-    message: error instanceof Error ? error.message : String(error),
+    message: errorMessage(error),
   });
 };
 

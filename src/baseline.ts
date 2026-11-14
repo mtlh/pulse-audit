@@ -1,6 +1,7 @@
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
-import { dirname } from 'node:path';
 import type { ApiResult, AuditResult, BaselineFile, HttpMethod, Preset } from './types.js';
+import { isEnoent } from './util/errors.js';
+import { readJsonFile, writeJsonFile } from './util/files.js';
+import { isRecord } from './util/guards.js';
 
 export const BASELINE_VERSION = 3 as const;
 
@@ -14,10 +15,6 @@ export function baselineKey(preset: Preset, url: string): string {
 
 export function apiBaselineKey(method: HttpMethod, url: string): string {
   return `api::${method}::${url}`;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 function migrateV1(results: Record<string, unknown>): BaselineFile {
@@ -39,7 +36,7 @@ function migrateV1(results: Record<string, unknown>): BaselineFile {
 
 export async function readBaseline(path: string): Promise<BaselineFile> {
   try {
-    const parsed: unknown = JSON.parse(await readFile(path, 'utf8'));
+    const parsed: unknown = await readJsonFile(path);
     if (!isRecord(parsed) || !isRecord(parsed.results)) {
       throw new Error(`Unsupported baseline format in ${path}`);
     }
@@ -64,7 +61,7 @@ export async function readBaseline(path: string): Promise<BaselineFile> {
 
     throw new Error(`Unsupported baseline format in ${path}`);
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+    if (isEnoent(error)) {
       return { version: BASELINE_VERSION, results: {}, apiResults: {} };
     }
     throw error;
@@ -76,8 +73,7 @@ export async function writeBaseline(path: string, file: BaselineFile): Promise<v
   if (file.apiResults && Object.keys(file.apiResults).length > 0) {
     next.apiResults = file.apiResults;
   }
-  await mkdir(dirname(path), { recursive: true });
-  await writeFile(path, `${JSON.stringify(next, null, 2)}\n`, 'utf8');
+  await writeJsonFile(path, next);
 }
 
 export function lighthouseMajor(version: string | undefined): number | null {

@@ -26,13 +26,6 @@ export function spreadRows(entry: ReportEntry): SpreadRow[] {
   return rows;
 }
 
-/** Compact `LCP 1.48–1.61s` fragments for the one-line spread summaries. */
-export function spreadParts(entry: ReportEntry): string[] {
-  return spreadRows(entry).map(
-    ({ check, stat }) => `${check.label} ${formatRange(stat.min, stat.max, check.format)}`,
-  );
-}
-
 const API_SPREAD_KEYS: ApiMetricKey[] = ['ttfb', 'duration', 'bytes'];
 
 export function apiSpreadRows(entry: ApiReportEntry): SpreadRow[] {
@@ -50,8 +43,15 @@ export function apiSpreadRows(entry: ApiReportEntry): SpreadRow[] {
   return rows;
 }
 
+/** Compact `LCP 1.48–1.61s` fragments for the one-line spread summaries. */
+export function spreadText(rows: readonly SpreadRow[]): string[] {
+  return rows.map(({ check, stat }) => `${check.label} ${formatRange(stat.min, stat.max, check.format)}`);
+}
+
+export function spreadParts(entry: ReportEntry): string[] {
+  return spreadText(spreadRows(entry));
+}
+
 export function apiSpreadParts(entry: ApiReportEntry): string[] {
-  return apiSpreadRows(entry).map(
-    ({ check, stat }) => `${check.label} ${formatRange(stat.min, stat.max, check.format)}`,
-  );
+  return spreadText(apiSpreadRows(entry));
 }

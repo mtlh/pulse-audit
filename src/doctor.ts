@@ -1,4 +1,4 @@
-import { mkdir, readFile } from 'node:fs/promises';
+import { mkdir } from 'node:fs/promises';
 import { resolveRequestHeaders } from './auth.js';
 import { apiBaselineKey, baselineKey, baselinePath, lighthouseMajor, readBaseline } from './baseline.js';
 import { findChromeBinary } from './chrome.js';
@@ -6,6 +6,9 @@ import { expectedStatus } from './compare.js';
 import { loadConfig, resolveApiTargets, resolveTargets, targetUrl } from './config.js';
 import { LIGHTHOUSE_VERSION } from './lighthouse-version.js';
 import type { BaselineFile, PulseConfig, ResolvedApiTarget } from './types.js';
+import { errorMessage, isEnoent } from './util/errors.js';
+import { readJsonFile } from './util/files.js';
+import { isRecord } from './util/guards.js';
 
 export type DoctorStatus = 'pass' | 'warn' | 'fail';
 
@@ -30,14 +33,6 @@ export interface DoctorOptions {
   checkUrl?: (url: string) => Promise<{ ok: boolean; detail: string }>;
   /** Injection point for tests; defaults to the read-only API probe. */
   checkApi?: (target: ResolvedApiTarget) => Promise<{ ok: boolean; detail: string }>;
-}
-
-function message(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 function checkNode(): DoctorCheck {
@@ -82,7 +77,7 @@ async function checkUrl(url: string): Promise<{ ok: boolean; detail: string }> {
       const detail = `${response.status}${response.statusText ? ` ${response.statusText}` : ''}`;
       return { ok: response.ok, detail };
     } catch {
-      return { ok: false, detail: message(headError) };
+      return { ok: false, detail: errorMessage(headError) };
     }
   }
 }
@@ -109,16 +104,16 @@ async function checkApiTarget(target: ResolvedApiTarget): Promise<{ ok: boolean;
     const detail = `${response.status}${response.statusText ? ` ${response.statusText}` : ''}`;
     return { ok: expectedStatus(response.status, target.expectStatus), detail };
   } catch (error) {
-    return { ok: false, detail: message(error) };
+    return { ok: false, detail: errorMessage(error) };
   }
 }
 
 async function inspectBaseline(path: string): Promise<{ check: DoctorCheck; baseline?: BaselineFile }> {
-  let rawText: string;
+  let parsed: unknown;
   try {
-    rawText = await readFile(path, 'utf8');
+    parsed = await readJsonFile(path);
   } catch (error) {
-    if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+    if (isEnoent(error)) {
       return {
         check: {
           name: 'baseline',
@@ -127,16 +122,10 @@ async function inspectBaseline(path: string): Promise<{ check: DoctorCheck; base
         },
       };
     }
-    return { check: { name: 'baseline', status: 'fail', detail: message(error) } };
+    return { check: { name: 'baseline', status: 'fail', detail: errorMessage(error) } };
   }
 
-  let rawVersion: unknown;
-  try {
-    const parsed: unknown = JSON.parse(rawText);
-    rawVersion = isRecord(parsed) ? parsed.version : undefined;
-  } catch (error) {
-    return { check: { name: 'baseline', status: 'fail', detail: message(error) } };
-  }
+  const rawVersion = isRecord(parsed) ? parsed.version : undefined;
 
   try {
     const baseline = await readBaseline(path);
@@ -154,7 +143,7 @@ async function inspectBaseline(path: string): Promise<{ check: DoctorCheck; base
       baseline,
     };
   } catch (error) {
-    return { check: { name: 'baseline', status: 'fail', detail: message(error) } };
+    return { check: { name: 'baseline', status: 'fail', detail: errorMessage(error) } };
   }
 }
 
@@ -241,7 +230,7 @@ export async function runDoctor(options: DoctorOptions = {}): Promise<DoctorResu
       }${apiCount > 0 ? `, ${apiCount} API endpoint${apiCount === 1 ? '' : 's'}` : ''})`,
     });
   } catch (error) {
-    checks.push({ name: 'config', status: 'fail', detail: message(error) });
+    checks.push({ name: 'config', status: 'fail', detail: errorMessage(error) });
   }
 
   if (config) {
@@ -250,7 +239,7 @@ export async function runDoctor(options: DoctorOptions = {}): Promise<DoctorResu
       await mkdir(outDir, { recursive: true });
       checks.push({ name: 'report', status: 'pass', detail: `${outDir} is writable` });
     } catch (error) {
-      checks.push({ name: 'report', status: 'fail', detail: `${outDir}: ${message(error)}` });
+      checks.push({ name: 'report', status: 'fail', detail: `${outDir}: ${errorMessage(error)}` });
     }
   }
 
