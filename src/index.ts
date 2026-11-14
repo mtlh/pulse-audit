@@ -11,8 +11,32 @@ export {
   targetUrl,
   writeConfig,
 } from './config.js';
-export { runAudit, pickMedianRun } from './runner.js';
-export type { AuditOptions, AuditProgressEvent } from './runner.js';
+export { auditTargets, createAuditSession, runAudit, pickMedianRun } from './runner.js';
+export type {
+  AuditOptions,
+  AuditProgressEvent,
+  AuditSession,
+  AuditSessionDeps,
+  AuditTargetOutcome,
+  AuditTargetResult,
+  AuditTargetSpec,
+  AuditTargetsOptions,
+} from './runner.js';
+export { mapWithConcurrency } from './scheduler.js';
+export {
+  decideFastPath,
+  fastAuditResult,
+  installedLighthouseVersion,
+  measureFast,
+  timingBudgetsConfigured,
+} from './fast.js';
+export type {
+  FastDecision,
+  FastDecisionInput,
+  FastMeasurement,
+  FastPrecheckOptions,
+  FastPrecheckResult,
+} from './fast.js';
 export { runApiAudit, pickMedianApiSample } from './api.js';
 export { expandEnv, resolveAuthHeaders, resolveRequestHeaders } from './auth.js';
 export { findChromeBinary, isWsl, linuxChromeCandidates } from './chrome.js';

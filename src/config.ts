@@ -14,7 +14,7 @@ import type {
   ResolvedApiTarget,
   ResolvedPageConfig,
 } from './types.js';
-import { DEFAULT_TIMEOUT_MS } from './util/defaults.js';
+import { DEFAULT_CONCURRENCY, DEFAULT_TIMEOUT_MS } from './util/defaults.js';
 import { parseBytes, parseCount, parseDuration, parsePercent, parseScore } from './util/units.js';
 
 type UnitParser = (value: unknown) => unknown;
@@ -198,6 +198,7 @@ export const configSchema = z
     retries: z.number().int().nonnegative().max(10).default(1),
     timeoutMs: z.number().int().positive().default(DEFAULT_TIMEOUT_MS),
     warmup: z.enum(['full', 'navigate', 'none']).default('navigate'),
+    concurrency: z.number().int().min(1).max(8).default(DEFAULT_CONCURRENCY),
     urls: z.array(z.union([auditUrlSchema, pageTargetSchema])).default([]),
     budgets: budgetsSchema.default({}),
     api: z.array(apiTargetSchema).default([]),
@@ -417,6 +418,7 @@ export function defaultConfig(urls: string[]): PulseConfig {
     retries: 1,
     timeoutMs: DEFAULT_TIMEOUT_MS,
     warmup: 'navigate',
+    concurrency: DEFAULT_CONCURRENCY,
     urls,
     api: [],
     budgets: {

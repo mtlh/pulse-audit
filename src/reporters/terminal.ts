@@ -53,6 +53,15 @@ function printEntry(entry: ReportEntry): void {
   console.log('');
   console.log(pc.bold(entry.url));
   console.log(pc.dim('─'.repeat(Math.min(78, entry.url.length + 24))));
+  if (entry.method === 'fast') {
+    console.log(
+      pc.yellow(
+        `      ↳ fast pre-check: enforced ${
+          entry.enforcedBudgets?.join(', ') ?? 'no budgets'
+        }; performance timings were not measured`,
+      ),
+    );
+  }
   printChecks(entry.checks);
 
   if (entry.ignoredRules && entry.ignoredRules.length > 0) {

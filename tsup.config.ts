@@ -4,6 +4,7 @@ export default defineConfig({
   entry: {
     cli: 'src/cli.ts',
     index: 'src/index.ts',
+    'audit-worker': 'src/audit-worker.ts',
   },
   format: ['esm'],
   target: 'node22',

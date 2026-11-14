@@ -12,3 +12,11 @@ export const DEFAULT_TIMEOUT_MS = 45_000;
  * fails, the measured runs still decide the result.
  */
 export const WARMUP_TIMEOUT_MS = 10_000;
+
+/**
+ * Default number of page URLs audited at once. 2 measured within 0.5% median
+ * drift (and no pass/fail flips) against concurrency 1 on the local fixture and
+ * the live dogfood page, while halving wall time. Higher values stay opt-in
+ * because typical CI runners expose fewer cores than the benchmark host.
+ */
+export const DEFAULT_CONCURRENCY = 2;

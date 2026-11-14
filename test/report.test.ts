@@ -111,7 +111,7 @@ function checkFor(checks: ReturnType<typeof reportEntry>['checks'], metric: stri
 
 describe('buildReport', () => {
   it('exports the report version', () => {
-    expect(REPORT_VERSION).toBe('3');
+    expect(REPORT_VERSION).toBe('4');
   });
 
   it('removes ignored axe rules from the audit and the a11y checks', () => {

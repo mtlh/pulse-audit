@@ -5,7 +5,7 @@ import pc from 'picocolors';
 import type { DoctorCheck } from './doctor.js';
 import type { ValueFormat } from './format.js';
 import type { ApiReportInput, ReportInput } from './report.js';
-import type { AuditProgressEvent } from './runner.js';
+import type { AuditProgressEvent, AuditSession, AuditTargetSpec } from './runner.js';
 import type { Preset, PulseConfig, WarmupMode } from './types.js';
 import { eventLoopDrains, flushStream } from './util/exit.js';
 import { VERSION } from './version.js';
@@ -48,6 +48,10 @@ function parseRetries(value: string | undefined): number | undefined {
 
 function parseTimeout(value: string | undefined): number | undefined {
   return parseInteger(value, '--timeout', 1, 3_600_000);
+}
+
+function parseConcurrency(value: string | undefined): number | undefined {
+  return parseInteger(value, '--concurrency', 1, 8);
 }
 
 function parsePreset(value: string | undefined): Preset | undefined {
@@ -102,14 +106,17 @@ function formatElapsed(durationMs: number | undefined): string {
 }
 
 /** One dim line per phase, so a slow run is visible in the CI log as it happens. */
-function auditProgressLine(event: AuditProgressEvent): string | undefined {
+function auditProgressLine(event: AuditProgressEvent, includeUrl = false): string | undefined {
+  const prefix = includeUrl && event.url ? `${event.url} ` : '';
   if (event.phase === 'warmup') {
-    return event.status === 'done' ? `warm-up ${formatElapsed(event.durationMs)}` : undefined;
+    return event.status === 'done' ? `${prefix}warm-up ${formatElapsed(event.durationMs)}` : undefined;
   }
   const run = `${event.run}/${event.runs}`;
-  if (event.status === 'start') return `run ${run}…`;
-  if (event.status === 'failed') return `run ${run} failed after ${formatElapsed(event.durationMs)}`;
-  return `run ${run} ${formatElapsed(event.durationMs)}`;
+  if (event.status === 'start') return `${prefix}run ${run}…`;
+  if (event.status === 'failed') {
+    return `${prefix}run ${run} failed after ${formatElapsed(event.durationMs)}`;
+  }
+  return `${prefix}run ${run} ${formatElapsed(event.durationMs)}`;
 }
 
 const program = new Command();
@@ -242,6 +249,11 @@ program
     'Lighthouse maxWaitForLoad and API request timeout in milliseconds (default 45000)',
   )
   .option('--warmup <mode>', 'warm-up before measured runs: navigate, full or none')
+  .option('--concurrency <n>', 'audit up to n page URLs at once; runs for one URL stay sequential')
+  .option(
+    '--fast',
+    'cheap local pre-check: skip Lighthouse when a11y and size budgets are unchanged (never updates a baseline)',
+  )
   .option('--github-output', 'write report-path and counts to $GITHUB_OUTPUT')
   .option('--update-baseline', 'write the audit result to the baseline file')
   .option('--json', 'print the report JSON to stdout; progress and paths go to stderr')
@@ -261,6 +273,8 @@ program
         retries?: string;
         timeout?: string;
         warmup?: string;
+        concurrency?: string;
+        fast?: boolean;
         githubOutput?: boolean;
         updateBaseline?: boolean;
         json?: boolean;
@@ -286,7 +300,10 @@ program
       const { writeJsonReport } = await import('./reporters/json.js');
       const { renderMarkdown, upsertSummary } = await import('./reporters/summary.js');
       const { printReport } = await import('./reporters/terminal.js');
-      const { runAudit } = await import('./runner.js');
+      const { auditTargets, createAuditSession } = await import('./runner.js');
+      const { decideFastPath, fastAuditResult, installedLighthouseVersion, measureFast } = await import(
+        './fast.js'
+      );
 
       if (url !== undefined) assertHttpUrl(url);
       const config: PulseConfig = await loadConfig(options.config);
@@ -296,13 +313,16 @@ program
       const retries = parseRetries(options.retries);
       const timeoutMs = parseTimeout(options.timeout);
       const warmup = parseWarmup(options.warmup);
+      const concurrency = parseConcurrency(options.concurrency);
       const failOn = parseFailOn(options.failOn, options.fail);
+      const useFast = options.fast === true;
 
       if (runs !== undefined) config.runs = runs;
       if (preset !== undefined) config.preset = preset;
       if (retries !== undefined) config.retries = retries;
       if (timeoutMs !== undefined) config.timeoutMs = timeoutMs;
       if (warmup !== undefined) config.warmup = warmup;
+      if (concurrency !== undefined) config.concurrency = concurrency;
       if (options.out !== undefined) config.report.outDir = options.out;
       if (url !== undefined) {
         // Keep the page-level overrides when the override URL is already in the
@@ -350,41 +370,151 @@ program
       const apiInputs: ApiReportInput[] = [];
       const errors: Array<{ url: string; message: string }> = [];
 
-      for (const page of pages) {
-        const pageUrl = targetUrl(page);
-        progress(
-          `auditing ${pageUrl} (${page.preset}, ${page.runs} run${page.runs === 1 ? '' : 's'}, ${page.warmup ?? 'navigate'} warm-up)…`,
+      if (useFast) {
+        // Printed even under --quiet/--json: this mode deliberately does not
+        // enforce every configured performance budget.
+        console.error(
+          pc.yellow(
+            'warning: --fast runs a cheap pre-check. Performance budgets are not fully enforced; ' +
+              'each URL escalates to Lighthouse when a budget is near its limit or cannot be compared. ' +
+              '--fast never updates a baseline and is not for CI.',
+          ),
         );
+      }
 
-        try {
-          const result = await runAudit(pageUrl, {
-            preset: page.preset,
-            runs: page.runs,
-            retries: page.retries,
-            timeoutMs: page.timeoutMs,
-            auth: page.auth,
-            warmup: page.warmup,
-            onProgress: (event) => {
-              const line = auditProgressLine(event);
-              if (line !== undefined) progress(line);
-            },
-          });
+      let effectiveConcurrency = Math.min(config.concurrency ?? 1, Math.max(1, pages.length));
+      if (useFast && effectiveConcurrency > 1) {
+        console.error(
+          pc.yellow('note: --fast runs one URL at a time; ignoring --concurrency for this run.'),
+        );
+        effectiveConcurrency = 1;
+      }
 
-          const raw = baseline.results[baselineKey(page.preset, pageUrl)];
-          const comparable = comparableBaseline(raw, result);
-          if (raw && !comparable) {
-            warn(
-              `Ignoring baseline for ${pageUrl}: preset, run count or Lighthouse version changed (${page.preset}).`,
-            );
-          }
+      const includeUrlInProgress = pages.length > 1 || effectiveConcurrency > 1;
+      const reportProgress = (event: AuditProgressEvent): void => {
+        const line = auditProgressLine(event, includeUrlInProgress);
+        if (line !== undefined) progress(line);
+      };
 
-          inputs.push({ result, baseline: comparable, config: page });
-        } catch (error) {
-          errors.push({
-            url: pageUrl,
-            message: error instanceof Error ? error.message : String(error),
-          });
+      const pageTargets: AuditTargetSpec[] = pages.map((page) => {
+        const pageUrl = targetUrl(page);
+        const rawBaseline = baseline.results[baselineKey(page.preset, pageUrl)];
+        const baseOptions = {
+          preset: page.preset,
+          runs: page.runs,
+          retries: page.retries,
+          timeoutMs: page.timeoutMs,
+          auth: page.auth,
+          warmup: page.warmup,
+        };
+
+        if (!useFast) {
+          return { url: pageUrl, options: baseOptions };
         }
+
+        return {
+          url: pageUrl,
+          audit: async (session: AuditSession) => {
+            try {
+              const precheck = await measureFast({
+                url: pageUrl,
+                chromePort: session.port,
+                auth: page.auth,
+                timeoutMs: page.timeoutMs ?? config.timeoutMs ?? 45_000,
+              });
+              const decision = decideFastPath({
+                measurement: precheck.measurement,
+                baseline: rawBaseline ?? null,
+                config: page,
+                lighthouseVersion: installedLighthouseVersion(),
+              });
+
+              if (decision.useFast) {
+                progress(`fast pre-check passed for ${pageUrl} (axe ${precheck.axeVersion})`);
+                return {
+                  result: fastAuditResult(
+                    precheck.measurement,
+                    page,
+                    decision.enforcedBudgets,
+                    rawBaseline ?? null,
+                  ),
+                  method: 'fast' as const,
+                  enforcedBudgets: decision.enforcedBudgets,
+                };
+              }
+
+              progress(
+                `fast pre-check for ${pageUrl} escalated to Lighthouse: ${decision.reasons.join('; ')}`,
+              );
+            } catch (error) {
+              const message = error instanceof Error ? error.message : String(error);
+              progress(`fast pre-check for ${pageUrl} failed (${message}); falling back to Lighthouse`);
+            }
+
+            const result = await session.auditTarget(pageUrl, {
+              ...baseOptions,
+              onProgress: reportProgress,
+            });
+            return { result, method: 'lighthouse' as const };
+          },
+        };
+      });
+
+      let session: AuditSession | undefined;
+      let outcomes: Awaited<ReturnType<typeof auditTargets>> = [];
+
+      if (pageTargets.length > 0) {
+        if (effectiveConcurrency === 1) {
+          try {
+            session = await createAuditSession();
+          } catch (error) {
+            const message = error instanceof Error ? error.message : String(error);
+            for (const page of pages) errors.push({ url: targetUrl(page), message });
+          }
+        }
+
+        if (session || effectiveConcurrency > 1) {
+          try {
+            outcomes = await auditTargets(session, pageTargets, {
+              concurrency: effectiveConcurrency,
+              onProgress: reportProgress,
+              onTargetStart: (target) => {
+                const page = pages[pageTargets.indexOf(target)];
+                progress(
+                  `auditing ${target.url} (${page.preset}, ${page.runs} run${page.runs === 1 ? '' : 's'}, ${page.warmup ?? 'navigate'} warm-up)…`,
+                );
+              },
+            });
+          } finally {
+            if (session) await session.close();
+          }
+        }
+      }
+
+      for (let index = 0; index < outcomes.length; index += 1) {
+        const outcome = outcomes[index];
+        const page = pages[index];
+
+        if (outcome.status === 'error') {
+          errors.push({ url: outcome.url, message: outcome.error });
+          continue;
+        }
+
+        const raw = baseline.results[baselineKey(page.preset, outcome.url)];
+        const comparable = comparableBaseline(raw, outcome.result);
+        if (raw && !comparable) {
+          warn(
+            `Ignoring baseline for ${outcome.url}: preset, run count or Lighthouse version changed (${page.preset}).`,
+          );
+        }
+
+        inputs.push({
+          result: outcome.result,
+          baseline: comparable,
+          config: page,
+          method: outcome.method,
+          enforcedBudgets: outcome.enforcedBudgets,
+        });
       }
 
       for (const target of apiTargets) {
@@ -429,7 +559,11 @@ program
       writeInfo(`${pc.dim('html')}  ${htmlPath}`);
 
       if (options.updateBaseline) {
-        if (errors.length > 0) {
+        if (useFast) {
+          warn(
+            'Baseline not updated: --fast never writes a baseline. Run the full audit without --fast to establish one.',
+          );
+        } else if (errors.length > 0) {
           warn('Baseline not updated: at least one URL failed to audit, and a partial baseline is unsafe.');
         } else {
           await writeBaseline(
