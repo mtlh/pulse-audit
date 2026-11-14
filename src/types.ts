@@ -68,6 +68,7 @@ export interface BudgetSet {
   thirdPartyBytes?: BudgetRule;
   thirdPartyRequests?: BudgetRule;
   longTasks?: BudgetRule;
+  thirdPartyMainThread?: BudgetRule;
   a11y?: A11yBudget;
 }
 
@@ -171,6 +172,12 @@ export interface LongTaskDetail {
   duration: number;
 }
 
+export interface ThirdPartyCpu {
+  entity: string;
+  mainThreadTime: number;
+  transferSize: number;
+}
+
 export interface AuditMetrics {
   lcp: number;
   cls: number;
@@ -188,6 +195,8 @@ export interface AuditMetrics {
   thirdPartyRequests: number;
   /** Main-thread tasks of at least 50 ms. */
   longTasks: number;
+  /** Main-thread CPU time attributed to third parties, in milliseconds. */
+  thirdPartyMainThread: number;
   violations: number;
 }
 
@@ -210,6 +219,8 @@ export interface AuditResult {
   longTaskDetails?: LongTaskDetail[];
   /** Up to 10 requests that returned 4xx/5xx or failed in transport. */
   failedRequestDetails?: RequestSummary[];
+  /** Top 10 third-party entities by main-thread CPU time. */
+  thirdPartyCpu?: ThirdPartyCpu[];
 }
 
 export interface ApiMetrics {

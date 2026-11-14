@@ -28,6 +28,7 @@ const BASE_METRICS: AuditMetrics = {
   thirdPartyBytes: 5120,
   thirdPartyRequests: 2,
   longTasks: 2,
+  thirdPartyMainThread: 840,
   violations: 3,
 };
 
@@ -81,6 +82,11 @@ function audit(overrides: Partial<AuditResult> = {}): AuditResult {
     longTaskDetails: [
       { url: `https://example.com/${evil}`, startTime: 900, duration: 320 },
       { startTime: 1200, duration: 140 },
+    ],
+    thirdPartyCpu: [
+      { entity: 'Google Analytics', mainThreadTime: 420, transferSize: 5120 },
+      { entity: 'cdn.example.com', mainThreadTime: 210, transferSize: 3072 },
+      { entity: evil, mainThreadTime: 105, transferSize: 1024 },
     ],
     violations: [
       {
@@ -325,6 +331,34 @@ describe('renderHtml', () => {
     expect(html).toContain('Failed requests');
     expect(html).toContain('2 requests');
     expect(html).toContain('Per-request detail was not captured.');
+  });
+
+  it('shows third-party main-thread CPU detail in the same card', () => {
+    const html = renderHtml(report());
+
+    expect(html).toContain('Main-thread CPU time');
+    expect(html).toContain('840ms');
+    expect(html).toContain('Google Analytics');
+    expect(html).toContain('420ms · 5.0 KB');
+    expect(html).toContain('cdn.example.com');
+    expect(html).toContain('210ms · 3.0 KB');
+  });
+
+  it('shows the CPU card when third-party request detail is missing', () => {
+    const cpuOnly = audit({ thirdPartyHeaviest: [], metrics: metrics({ thirdPartyBytes: 0 }) });
+    const html = renderHtml(report({ results: [entry({ audit: cpuOnly })] }));
+
+    expect(html).toContain('Third-party requests');
+    expect(html).toContain('Main-thread CPU time');
+    expect(html).not.toContain('per-request detail was not captured');
+  });
+
+  it('omits the CPU section when no third-party CPU detail was captured', () => {
+    const withoutCpu = audit({ thirdPartyCpu: [] });
+    const html = renderHtml(report({ results: [entry({ audit: withoutCpu })] }));
+
+    expect(html).toContain('Third-party requests');
+    expect(html).not.toContain('Main-thread CPU time');
   });
 
   it('shows accessibility impact counts in the card heading', () => {

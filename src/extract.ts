@@ -8,6 +8,7 @@ import type {
   LongTaskDetail,
   Preset,
   RequestSummary,
+  ThirdPartyCpu,
 } from './types.js';
 import { IMPACT_ORDER } from './util/a11y.js';
 
@@ -151,6 +152,41 @@ function extractLcpElement(lhr: Lhr): LcpElement | undefined {
   };
 }
 
+function entityName(value: unknown): string {
+  if (typeof value === 'string') return value;
+  if (value && typeof value === 'object') {
+    const entity = value as Record<string, unknown>;
+    if (typeof entity.text === 'string') return entity.text;
+    if (typeof entity.name === 'string') return entity.name;
+    if (typeof entity.url === 'string') return entity.url;
+  }
+  return '';
+}
+
+/**
+ * Lighthouse 13 reports third-party CPU in the `third-parties-insight` table.
+ * Older and stored LHRs use `third-party-summary`, which also carries a
+ * blocking time for entities without a main-thread measurement.
+ */
+function thirdPartyCpuItems(lhr: Lhr): ThirdPartyCpu[] | undefined {
+  const insightItems: unknown = lhr.audits?.['third-parties-insight']?.details?.items;
+  if (Array.isArray(insightItems)) {
+    return insightItems.map((item: any) => ({
+      entity: entityName(item?.entity),
+      mainThreadTime: finiteNumber(item?.mainThreadTime) ?? 0,
+      transferSize: finiteNumber(item?.transferSize) ?? 0,
+    }));
+  }
+
+  const fallbackItems: unknown = lhr.audits?.['third-party-summary']?.details?.items;
+  if (!Array.isArray(fallbackItems)) return undefined;
+  return fallbackItems.map((item: any) => ({
+    entity: entityName(item?.entity),
+    mainThreadTime: finiteNumber(item?.mainThreadTime) ?? finiteNumber(item?.blockingTime) ?? 0,
+    transferSize: finiteNumber(item?.transferSize) ?? 0,
+  }));
+}
+
 function extractViolations(lhr: Lhr): A11yViolation[] {
   const refs: any[] = lhr.categories?.accessibility?.auditRefs ?? [];
   const violations: A11yViolation[] = [];
@@ -195,6 +231,8 @@ export function extractResult(lhr: Lhr, url: string, preset: Preset, runs: numbe
   const thirdPartyRequests = requests.filter((request) => request.thirdParty);
   const longTasks = extractLongTasks(lhr);
   const failedRequests = requests.filter(isFailedRequest);
+  const thirdPartyCpuAll = thirdPartyCpuItems(lhr) ?? [];
+  const thirdPartyMainThread = thirdPartyCpuAll.reduce((total, item) => total + item.mainThreadTime, 0);
 
   return {
     url,
@@ -220,6 +258,7 @@ export function extractResult(lhr: Lhr, url: string, preset: Preset, runs: numbe
       thirdPartyBytes: sumBytes(thirdPartyRequests),
       thirdPartyRequests: thirdPartyRequests.length,
       longTasks: longTasks.count,
+      thirdPartyMainThread,
       violations: countViolationNodes({ violations }),
     },
     lcpElement: extractLcpElement(lhr),
@@ -228,5 +267,6 @@ export function extractResult(lhr: Lhr, url: string, preset: Preset, runs: numbe
     thirdPartyHeaviest: [...thirdPartyRequests].sort((a, b) => b.bytes - a.bytes).slice(0, 10),
     ...(longTasks.details.length > 0 ? { longTaskDetails: longTasks.details } : {}),
     failedRequestDetails: failedRequests.slice(0, 10),
+    thirdPartyCpu: [...thirdPartyCpuAll].sort((a, b) => b.mainThreadTime - a.mainThreadTime).slice(0, 10),
   };
 }

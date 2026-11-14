@@ -25,24 +25,25 @@ so the config stays valid JSON for editors and review.
 
 ## Metrics and defaults
 
-| Key                  | Measures                       | Default severity in generated config |
-| -------------------- | ------------------------------ | ------------------------------------ |
-| `lcp`                | Largest Contentful Paint, ms   | error                                |
-| `cls`                | Cumulative Layout Shift, score | error                                |
-| `tbt`                | Total Blocking Time, ms        | warn                                 |
-| `fcp`                | First Contentful Paint, ms     | error                                |
-| `ttfb`               | Server response time, ms       | warn                                 |
-| `js`                 | JavaScript transfer bytes      | error                                |
-| `css`                | Stylesheet transfer bytes      | warn                                 |
-| `fonts`              | Font transfer bytes            | warn                                 |
-| `images`             | Image transfer bytes           | warn                                 |
-| `total`              | All transfer bytes             | warn                                 |
-| `requests`           | Request count                  | error                                |
-| `failedRequests`     | Failed subresource requests    | error                                |
-| `thirdPartyBytes`    | Third-party transfer bytes     | warn                                 |
-| `thirdPartyRequests` | Third-party request count      | warn                                 |
-| `longTasks`          | Main-thread tasks ≥ 50 ms      | warn                                 |
-| `a11y`               | Accessibility violation nodes  | error                                |
+| Key                    | Measures                         | Default severity in generated config |
+| ---------------------- | -------------------------------- | ------------------------------------ |
+| `lcp`                  | Largest Contentful Paint, ms     | error                                |
+| `cls`                  | Cumulative Layout Shift, score   | error                                |
+| `tbt`                  | Total Blocking Time, ms          | warn                                 |
+| `fcp`                  | First Contentful Paint, ms       | error                                |
+| `ttfb`                 | Server response time, ms         | warn                                 |
+| `js`                   | JavaScript transfer bytes        | error                                |
+| `css`                  | Stylesheet transfer bytes        | warn                                 |
+| `fonts`                | Font transfer bytes              | warn                                 |
+| `images`               | Image transfer bytes             | warn                                 |
+| `total`                | All transfer bytes               | warn                                 |
+| `requests`             | Request count                    | error                                |
+| `failedRequests`       | Failed subresource requests      | error                                |
+| `thirdPartyBytes`      | Third-party transfer bytes       | warn                                 |
+| `thirdPartyRequests`   | Third-party request count        | warn                                 |
+| `longTasks`            | Main-thread tasks ≥ 50 ms        | warn                                 |
+| `thirdPartyMainThread` | Third-party main-thread time, ms | warn                                 |
+| `a11y`                 | Accessibility violation nodes    | error                                |
 
 `max` is compared against the median of the measured runs. The first run is a warm-up and is
 never reported or compared.
@@ -236,23 +237,24 @@ cannot disagree.
 applies headroom, so you start from a definition the page can actually hit. Review and
 tighten it once fixes land.
 
-| Metric               | Headroom applied by `init --from`                                                         |
-| -------------------- | ----------------------------------------------------------------------------------------- |
-| LCP                  | current + 500 ms (minimum 1000 ms)                                                        |
-| CLS                  | 0.05 (or current + 0.02)                                                                  |
-| TBT                  | current + 100 ms (minimum 200 ms), warning                                                |
-| FCP                  | current + 500 ms (minimum 1800 ms)                                                        |
-| TTFB                 | current + 200 ms (minimum 800 ms), warning                                                |
-| JavaScript           | current + 20%, minimum 50 KB                                                              |
-| CSS                  | current + 20%, minimum 100 KB, warning                                                    |
-| Fonts                | current + 20%, minimum 300 KB, warning                                                    |
-| Images               | current + 20%, minimum 100 KB                                                             |
-| Total                | current + 20%, minimum 1.5 MB, warning                                                    |
-| Requests             | current + 10 (minimum 20)                                                                 |
-| Failed requests      | today's count as `max` with `regression: 0`, so inherited failures pass and new ones fail |
-| Third-party bytes    | current + 20%, minimum 300 KB, warning                                                    |
-| Third-party requests | current + 10, minimum 20, warning                                                         |
-| Long tasks           | current + 2 (minimum 10), regression 20%, warning                                         |
-| A11y                 | `maxNew: 0`, critical/serious buckets at 0, `maxViolations` equal to today's count        |
+| Metric                  | Headroom applied by `init --from`                                                         |
+| ----------------------- | ----------------------------------------------------------------------------------------- |
+| LCP                     | current + 500 ms (minimum 1000 ms)                                                        |
+| CLS                     | 0.05 (or current + 0.02)                                                                  |
+| TBT                     | current + 100 ms (minimum 200 ms), warning                                                |
+| FCP                     | current + 500 ms (minimum 1800 ms)                                                        |
+| TTFB                    | current + 200 ms (minimum 800 ms), warning                                                |
+| JavaScript              | current + 20%, minimum 50 KB                                                              |
+| CSS                     | current + 20%, minimum 100 KB, warning                                                    |
+| Fonts                   | current + 20%, minimum 300 KB, warning                                                    |
+| Images                  | current + 20%, minimum 100 KB                                                             |
+| Total                   | current + 20%, minimum 1.5 MB, warning                                                    |
+| Requests                | current + 10 (minimum 20)                                                                 |
+| Failed requests         | today's count as `max` with `regression: 0`, so inherited failures pass and new ones fail |
+| Third-party bytes       | current + 20%, minimum 300 KB, warning                                                    |
+| Third-party requests    | current + 10, minimum 20, warning                                                         |
+| Long tasks              | current + 2 (minimum 10), regression 20%, warning                                         |
+| Third-party main thread | current + 20% rounded up to 50 ms, minimum 200 ms, warning                                |
+| A11y                    | `maxNew: 0`, critical/serious buckets at 0, `maxViolations` equal to today's count        |
 
 Tighten after the first fixes land. A budget you cannot hit is a budget people disable.

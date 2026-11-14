@@ -29,6 +29,7 @@ function metrics(overrides: Partial<AuditMetrics> = {}): AuditMetrics {
     thirdPartyBytes: 0,
     thirdPartyRequests: 0,
     longTasks: 0,
+    thirdPartyMainThread: 0,
     violations: 2,
     ...overrides,
   };
@@ -61,6 +62,11 @@ describe('config', () => {
     expect(parsed.budgets.failedRequests).toEqual({ max: 0, regression: 0 });
     expect(parsed.budgets.thirdPartyRequests?.max).toBe(20);
     expect(parsed.budgets.longTasks).toEqual({ max: 10, regression: 20, severity: 'warn' });
+    expect(parsed.budgets.thirdPartyMainThread).toEqual({
+      max: 200,
+      regression: 20,
+      severity: 'warn',
+    });
     expect(parsed.budgets.a11y?.maxNewByImpact).toEqual({ critical: 0, serious: 0 });
   });
 
@@ -258,6 +264,7 @@ describe('budgetsFromResult', () => {
     expect(budgets.thirdPartyBytes).toEqual({ max: 0, regression: 10, severity: 'warn' });
     expect(budgets.thirdPartyRequests).toEqual({ max: 0, regression: 10, severity: 'warn' });
     expect(budgets.longTasks).toEqual({ max: 10, regression: 20, severity: 'warn' });
+    expect(budgets.thirdPartyMainThread).toEqual({ max: 200, regression: 20, severity: 'warn' });
     expect(budgets.a11y).toEqual({
       maxViolations: 2,
       maxNew: 0,
@@ -275,6 +282,7 @@ describe('budgetsFromResult', () => {
         total: 2_000_000,
         thirdPartyBytes: 100_000,
         thirdPartyRequests: 4,
+        thirdPartyMainThread: 430,
       }),
     );
 
@@ -285,6 +293,7 @@ describe('budgetsFromResult', () => {
     expect(budgets.total?.max).toBe(2_400_256);
     expect(budgets.thirdPartyBytes?.max).toBe(307_200);
     expect(budgets.thirdPartyRequests?.max).toBe(20);
+    expect(budgets.thirdPartyMainThread?.max).toBe(550);
   });
 
   it('derives a long-task budget from the measured count with a floor', () => {

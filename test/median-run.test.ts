@@ -19,6 +19,7 @@ const BASE_METRICS: AuditMetrics = {
   thirdPartyBytes: 0,
   thirdPartyRequests: 0,
   longTasks: 0,
+  thirdPartyMainThread: 0,
   violations: 0,
 };
 
@@ -64,6 +65,7 @@ describe('pickMedianRun', () => {
       thirdPartyBytes: 50,
       thirdPartyRequests: 1,
       longTasks: 1,
+      thirdPartyMainThread: 10,
     });
     const middle = audit('middle', {
       lcp: 2000,
@@ -81,6 +83,7 @@ describe('pickMedianRun', () => {
       thirdPartyBytes: 100,
       thirdPartyRequests: 2,
       longTasks: 2,
+      thirdPartyMainThread: 20,
     });
     const slow = audit('slow', {
       lcp: 3000,
@@ -98,6 +101,7 @@ describe('pickMedianRun', () => {
       thirdPartyBytes: 150,
       thirdPartyRequests: 3,
       longTasks: 3,
+      thirdPartyMainThread: 30,
     });
 
     middle.heaviest = [
@@ -128,6 +132,7 @@ describe('pickMedianRun', () => {
       thirdPartyBytes: 100,
       thirdPartyRequests: 2,
       longTasks: 2,
+      thirdPartyMainThread: 20,
       violations: 0,
     });
     expect(picked.samples).toEqual([slow.metrics, fast.metrics, middle.metrics]);

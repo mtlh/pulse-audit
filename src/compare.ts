@@ -39,6 +39,12 @@ const METRIC_SPECS: MetricSpec[] = [
   { key: 'thirdPartyBytes', label: 'Third-party bytes', format: 'bytes', defaultSeverity: 'warn' },
   { key: 'thirdPartyRequests', label: 'Third-party requests', format: 'count', defaultSeverity: 'warn' },
   { key: 'longTasks', label: 'Long tasks', format: 'count', defaultSeverity: 'warn' },
+  {
+    key: 'thirdPartyMainThread',
+    label: 'Third-party main thread',
+    format: 'ms',
+    defaultSeverity: 'warn',
+  },
 ];
 
 function normalizeText(value: string | undefined): string {

@@ -57,6 +57,11 @@ export function renderMarkdown(report: PulseReport): string {
       lines.push('', failedRequestBullet(request));
     }
 
+    const thirdPartyMainThread = entry.audit.metrics.thirdPartyMainThread;
+    if (thirdPartyMainThread > 0) {
+      lines.push('', `- **Third-party main thread**: ${formatValue(thirdPartyMainThread, 'ms')}`);
+    }
+
     if (entry.ignoredRules && entry.ignoredRules.length > 0) {
       lines.push(
         '',
