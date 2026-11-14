@@ -6,9 +6,53 @@ to verify it.
 
 - **Repository:** `github.com/mtlh/pulse-audit`
 - **Owner:** Matthew Harvey (`github.com/mtlh`)
-- **Status:** v0.2.1 live on npm as `@mtlh/pulse-audit`; trustworthy-gate, WSL and the dependency refresh are released; npx-first, no composite action
+- **Status:** v0.2.1 live on npm as `@mtlh/pulse-audit`; trustworthy-gate, WSL, the dependency refresh and the performance pass are merged; npx-first, no composite action
 - **Git:** `main` pushed; `v0.2.1` tagged and pushed by the release workflow
 - **Related portfolio:** `PortfolioV2` (separate local checkout)
+
+---
+
+## Performance pass - Chrome reuse, concurrency, `--fast`
+
+Measured baseline: one Lighthouse run on a trivial local page took 4.5-6.2 s; a full 3-run
+audit took 17.6 s. Chrome launch + kill was about 0.67 s, and the report pipeline was already
+6.5 ms, so the work was all browser lifecycle and scheduling.
+
+Shipped:
+
+- **Audit session.** `createAuditSession()` launches Chrome once, imports Lighthouse once and
+  exposes `auditTarget(url, options)`; `auditTargets()` schedules several targets and returns
+  outcomes in config order. `runAudit()` is still launch + audit + kill for library callers.
+  `AuditProgressEvent` now carries `url`, so concurrent lines stay attributable.
+- **One Chrome at concurrency 1.** A 4-URL fixture run with `runs: 3` went from 62.0 s
+  (pre-change, four Chrome launches) to 58.7 s (one Chrome, sequential) and 30.2 s at
+  `--concurrency 2`.
+- **Bounded concurrency.** `--concurrency` and `config.concurrency` (default `2`, range 1-8).
+  Runs for one URL stay sequential; only different URLs overlap. Report order is the config
+  order, per-URL errors are isolated and a failed URL still blocks `--update-baseline`.
+  Chrome permits only one tracing session per browser and Lighthouse keeps process-global
+  trace-engine state, so each lane above 1 runs in a worker thread with its own Chrome. This
+  was verified by a flow test with two fixture URLs.
+- **Measured default.** Four URLs, `runs: 3`, medians across the URLs. Fixture: LCP 2401 ms,
+  CLS 0.075, TBT 0, FCP 1801 ms, bytes 391,925, 4 requests at concurrency 1, 2 and 4. Live
+  `https://mtlh.vercel.app/`: LCP 1226 -> 1229 -> 1229 ms, FCP 1002 -> 1004 -> 1010 ms,
+  TTFB 20.5 -> 22.5 -> 21.0 ms, bytes 97,456 -> 97,411 -> 97,340, 8 requests; no pass/fail
+  flips. Largest median drift +0.25% (LCP); TTFB moved 2 ms absolute. Wall time 64.6 -> 35.1 ->
+  21.3 s. Default 2 keeps headroom for two-vCPU CI runners; 4 is opt-in.
+- **`--fast`.** Opt-in local pre-check using the exact `axe-core` bundle Lighthouse depends on
+  plus a CDP network profile. It only skips Lighthouse when a comparable baseline exists, the
+  axe rule/node-count fingerprint matches, and every size/count budget is outside its 10%
+  near-limit band and regression tolerance. Any timing, failed-request, long-task,
+  third-party-main-thread or console-error budget escalates; so does a navigation error or a
+  changed a11y finding. It always warns, never writes a baseline, and marks report entries with
+  `method` and `enforcedBudgets`. Report schema is now v4. A flow test injects an a11y
+  regression and asserts that the pre-check escalates and fails the full run.
+- **`scripts/bench.mjs`.** Per-phase timings for `--url`, `--config` or `--fixture`; supports
+  `--runs`, `--concurrency` and `--json`.
+
+Verification for this pass: `npm run typecheck`, `npm test` (250 passed, 14 skipped),
+`npm run test:flows` with `PULSE_E2E=1` (23 passed, 1 skipped; package flow needs
+`npm run test:e2e`), and the benchmark matrix above on the same Windows box.
 
 ---
 
@@ -110,34 +154,34 @@ a11y gating, and a report that diagnoses instead of scoring.
 
 ## 3. Current state
 
-| Area                                | State                                      | Notes                                                                                  |
-| ----------------------------------- | ------------------------------------------ | -------------------------------------------------------------------------------------- |
-| `package.json` / TS / tsup / vitest | Done                                       | Node 22.19+, ESM                                                                       |
-| Config schema + defaults            | **Verified**                               | zod, per-URL overrides, readable units, strict mode                                    |
-| `init` command                      | **Verified**                               | defaults or measured budgets via `--from`                                              |
-| Lighthouse runner                   | **Verified (samples + warm-up + retries)** | Lighthouse 13.6.0; median of N, retries, per-URL isolation, navigate/full/none warm-up |
-| API runner                          | **Verified**                               | authenticated fetch, median of N, no warm-up; TTFB/duration/status/bytes               |
-| LHR extraction                      | **Verified**                               | LCP element, expanded weight metrics and axe nodes checked                             |
-| Compare / budget logic              | **Verified (live + flows)**                | strict mode, impact buckets, `ignoreRules`; UI and API budget evaluation               |
-| Baseline read/write + comparability | **Verified (v3 + migration)**              | pages keyed `preset::url`, API keyed `api::METHOD::url`; v1/v2 migrate on read         |
-| Terminal reporter                   | Done                                       | ANSI colour, run spread, ignored-rule note, UI/API split                               |
-| JSON reporter                       | Done                                       | report schema v3 with `apiResults`                                                     |
-| HTML reporter                       | **Verified**                               | self-contained, no JS; variance, third-party and cross-URL sections                    |
-| Markdown summary                    | Done                                       | for `$GITHUB_STEP_SUMMARY`; replaces its marker block                                  |
-| GitHub Action                       | **Dropped**                                | owner chose npx/CLI as the delivery path                                               |
-| WSL                                 | **Verified (unit)**                        | Linux Chrome detection incl. snap/Flatpak; `doctor` guidance                           |
-| Unit tests                          | Done                                       | 169 tests in the current tree                                                          |
-| Integration tests / fixture site    | **Verified**                               | deterministic fixture + 19 CLI flows; `PULSE_E2E=1`                                    |
-| Docs                                | Updated                                    | budgets, roadmap, WSL, auth/API, quick start, test commands                            |
-| npm publish                         | **Live**                                   | `@mtlh/pulse-audit@0.2.1`; release workflow publishes new versions from `main`         |
-| Release workflow                    | **Added**                                  | main push → publish new version → tag/release                                          |
-| PR comment                          | Not done                                   | step summary only                                                                      |
+| Area                                | State                                          | Notes                                                                                                                   |
+| ----------------------------------- | ---------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
+| `package.json` / TS / tsup / vitest | Done                                           | Node 22.19+, ESM                                                                                                        |
+| Config schema + defaults            | **Verified**                                   | zod, per-URL overrides, readable units, strict mode                                                                     |
+| `init` command                      | **Verified**                                   | defaults or measured budgets via `--from`                                                                               |
+| Lighthouse runner                   | **Verified (session + concurrency + retries)** | Lighthouse 13.6.0; one Chrome at concurrency 1, worker lanes above it, median of N, retries, navigate/full/none warm-up |
+| API runner                          | **Verified**                                   | authenticated fetch, median of N, no warm-up; TTFB/duration/status/bytes                                                |
+| LHR extraction                      | **Verified**                                   | LCP element, expanded weight metrics and axe nodes checked                                                              |
+| Compare / budget logic              | **Verified (live + flows)**                    | strict mode, impact buckets, `ignoreRules`; UI and API budget evaluation                                                |
+| Baseline read/write + comparability | **Verified (v3 + migration)**                  | pages keyed `preset::url`, API keyed `api::METHOD::url`; v1/v2 migrate on read                                          |
+| Terminal reporter                   | Done                                           | ANSI colour, run spread, ignored-rule note, UI/API split                                                                |
+| JSON reporter                       | Done                                           | report schema v3 with `apiResults`                                                                                      |
+| HTML reporter                       | **Verified**                                   | self-contained, no JS; variance, third-party and cross-URL sections                                                     |
+| Markdown summary                    | Done                                           | for `$GITHUB_STEP_SUMMARY`; replaces its marker block                                                                   |
+| GitHub Action                       | **Dropped**                                    | owner chose npx/CLI as the delivery path                                                                                |
+| WSL                                 | **Verified (unit)**                            | Linux Chrome detection incl. snap/Flatpak; `doctor` guidance                                                            |
+| Unit tests                          | Done                                           | 250 unit tests; scheduler/session/fast-decision coverage                                                                |
+| Integration tests / fixture site    | **Verified**                                   | deterministic fixture + 23 CLI flows incl. concurrency and `--fast`; `PULSE_E2E=1`                                      |
+| Docs                                | Updated                                        | budgets, roadmap, WSL, auth/API, performance/concurrency/fast, quick start, benchmarks                                  |
+| npm publish                         | **Live**                                       | `@mtlh/pulse-audit@0.2.1`; release workflow publishes new versions from `main`                                          |
+| Release workflow                    | **Added**                                      | main push → publish new version → tag/release                                                                           |
+| PR comment                          | Not done                                       | step summary only                                                                                                       |
 
 `npm install` has been run and `package-lock.json` is present. `npm run typecheck`,
-`npm test` (169 tests; 9 Chrome/package flows skipped) and `npm run build` all pass.
-`npm run test:e2e` runs the 19 flow tests, including fixture audits, authenticated UI/API
-checks and a packed install. `npm run battle-test` exercises the live portfolio through the
-CLI sequence.
+`npm test` (250 tests; Chrome/package flows skipped) and `npm run build` all pass.
+`npm run test:e2e` runs the 23 flow tests, including fixture audits, concurrency, `--fast`,
+authenticated UI/API checks and a packed install. `npm run battle-test` exercises the live
+portfolio through the CLI sequence; `npm run bench` reports per-phase timings.
 
 ---
 
@@ -155,7 +199,10 @@ pulse-audit/
 │   ├── auth.ts                    ${ENV_VAR} expansion, bearer/basic headers
 │   ├── chrome.ts                  Chrome/WSL detection and fallbacks
 │   ├── doctor.ts                  environment and project checks
-│   ├── runner.ts                  chrome-launcher + lighthouse, median pick
+│   ├── runner.ts                  audit session, worker lanes, chrome-launcher + lighthouse
+│   ├── audit-worker.ts            one concurrency lane (own Chrome + Lighthouse module)
+│   ├── scheduler.ts               bounded, order-preserving concurrency
+│   ├── fast.ts                    opt-in axe/network pre-check and escalation rules
 │   ├── api.ts                     authenticated fetch timing, median pick
 │   ├── extract.ts                 LHR -> AuditResult
 │   ├── compare.ts                 pure budget evaluation
@@ -172,6 +219,7 @@ pulse-audit/
 │   ├── util/                      units, median, variance, impact order
 │   └── index.ts                   public API
 ├── scripts/
+│   ├── bench.mjs                  per-phase benchmark (URL, config or fixture)
 │   ├── run-e2e.mjs                builds, then runs test/flows
 │   └── battle-test.mjs            live portfolio sequence
 └── test/
@@ -197,6 +245,8 @@ pulse-audit/
         ├── api-only.test.ts       no-Chrome API-only config flow
         ├── api.e2e.test.ts        authenticated page + API timing flow
         ├── audit.e2e.test.ts      pass/fail outputs and --no-fail
+        ├── concurrency.e2e.test.ts multi-URL overlap and report order
+        ├── fast.e2e.test.ts       --fast pass, baseline refusal and a11y escalation
         ├── baseline.e2e.test.ts   baseline, deltas and new axe debt
         ├── init-from.e2e.test.ts  derive budgets from a measured page
         ├── json.e2e.test.ts       --json and --fail-on

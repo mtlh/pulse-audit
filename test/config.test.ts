@@ -57,6 +57,7 @@ describe('config', () => {
     expect(parsed.retries).toBe(1);
     expect(parsed.timeoutMs).toBe(45_000);
     expect(parsed.warmup).toBe('navigate');
+    expect(parsed.concurrency).toBe(2);
     expect(parsed.report.outDir).toBe('.pulse');
     expect(parsed.budgets.lcp?.max).toBe(2500);
     expect(parsed.budgets.fcp?.max).toBe(1800);
@@ -133,6 +134,15 @@ describe('config', () => {
     expect(parsed.budgets.longTasks?.max).toBe(12);
     expect(parsed.budgets.failedRequests).toEqual({ max: 2, regression: 0 });
     expect(parsed.budgets.consoleErrors?.max).toBe(3);
+  });
+
+  it('defaults concurrency to 2 and validates the range', () => {
+    expect(configSchema.parse({ urls: ['https://example.com/'] }).concurrency).toBe(2);
+    expect(configSchema.safeParse({ urls: ['https://example.com/'], concurrency: 2 }).success).toBe(true);
+    expect(configSchema.safeParse({ urls: ['https://example.com/'], concurrency: 8 }).success).toBe(true);
+    expect(configSchema.safeParse({ urls: ['https://example.com/'], concurrency: 0 }).success).toBe(false);
+    expect(configSchema.safeParse({ urls: ['https://example.com/'], concurrency: 9 }).success).toBe(false);
+    expect(configSchema.safeParse({ urls: ['https://example.com/'], concurrency: 1.5 }).success).toBe(false);
   });
 
   it('rejects an unbounded retry count', () => {

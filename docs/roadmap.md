@@ -1,7 +1,7 @@
 # Feature expansion plan
 
 Status: v0.2.0 ("trustworthy gate") is released on npm, followed by the v0.2.1 dependency
-refresh. v0.3 and v1.0 remain pending. This
+refresh and the performance pass below. v0.3 and v1.0 remain pending. This
 document answers three questions: what Pulse does well today, what it is missing, and which
 gaps are worth closing in which order.
 
@@ -70,7 +70,7 @@ fine; the decision layer needs to get harder to fool.
 | 20  | **No baseline management.** No `pulse baseline show/prune/diff`; removed URLs stay forever. | Stale baselines accumulate and hide config drift.                                                                                             | P1       | S      |
 | 21  | **No `--json` stdout, `--quiet` or `--fail-on warn`.**                                      | Integration with scripts and other tools requires reading files. Warnings cannot fail a build.                                                | P1       | S      |
 | 22  | **No `pulse doctor`.**                                                                      | Chrome missing, config invalid, baseline incompatible and URL unreachable all surface as different errors after a long run.                   | P1       | S      |
-| 23  | **Multi-URL runs are sequential and launch Chrome per URL** (`cli.ts:184-191`).             | CI time scales linearly with route count.                                                                                                     | P2       | M      |
+| 23  | **[x] Multi-URL runs reused one Chrome per URL and ran sequentially.**                      | CI time scales linearly with route count. **Done:** one Chrome per command at concurrency 1, `--concurrency` worker lanes above it.           | P2       | M      |
 | 24  | **`--summary` appends without a marker.**                                                   | Re-running a job duplicates the summary section.                                                                                              | P2       | XS     |
 | 25  | **No changed-route detection.**                                                             | A PR that touches one page still audits the whole config.                                                                                     | P2       | M      |
 
@@ -123,6 +123,24 @@ Acceptance:
 - [x] Killing one Lighthouse run does not discard the other URLs.
 - [x] A config with an inert rule fails validation with the exact rule path.
 - [x] `pulse init --from` derives budgets from the configured run count, not one sample.
+
+### Performance pass — Chrome reuse, concurrency and `--fast`
+
+Shipped after v0.2.1, without changing Lighthouse, throttling, run-count semantics or the a11y
+union:
+
+1. **[x] One Chrome per audit command.** `pulse audit` launches Chrome once and reuses it for
+   every URL at `concurrency: 1`; `runAudit()` keeps launch/kill for library callers.
+2. **[x] Bounded URL concurrency.** `--concurrency` / `config.concurrency` (default `2`).
+   Runs for one URL stay sequential; different URLs overlap. Chrome allows one tracing session
+   per browser, so lanes above `1` use one Chrome plus one worker per lane. The default was
+   chosen from a measured LCP/CLS/TBT/FCP/TTFB/byte drift table (largest median drift +0.25%,
+   no pass/fail flips).
+3. **[x] `--fast` local pre-check.** Runs the Lighthouse axe bundle and a network profile,
+   escalates to full Lighthouse on any a11y difference, near-limit budget, timing/console/
+   failed-request budget or missing baseline, and never writes a baseline. Report schema v4
+   carries `method` and `enforcedBudgets`.
+4. **[x] `scripts/bench.mjs`** prints per-phase timings for a URL, config or the local fixture.
 
 ### v0.3 — "Fit real sites"
 

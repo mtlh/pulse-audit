@@ -13,6 +13,7 @@ import type {
   Preset,
   WarmupMode,
 } from './types.js';
+import { mapWithConcurrency } from './scheduler.js';
 import { DEFAULT_TIMEOUT_MS, WARMUP_TIMEOUT_MS } from './util/defaults.js';
 import { median } from './util/median.js';
 import { AUDIT_METRIC_KEYS } from './util/variance.js';
@@ -131,11 +132,71 @@ export interface AuditOptions {
  */
 export interface AuditProgressEvent {
   phase: 'warmup' | 'run';
+  /** The URL this event belongs to, so concurrent audits stay attributable. */
+  url?: string;
   /** 1-based measured-run number. Absent for the warm-up. */
   run?: number;
   runs?: number;
   status: 'start' | 'done' | 'failed';
   durationMs?: number;
+}
+
+/** The subset of a chrome-launcher instance the session needs. */
+export interface ChromeInstance {
+  port: number;
+  kill(): void | Promise<void>;
+}
+
+/**
+ * Injection points used by tests. Production callers should leave these
+ * undefined so the real chrome-launcher and Lighthouse are used.
+ */
+export interface AuditSessionDeps {
+  launchChrome?: (chromePath: string) => Promise<ChromeInstance>;
+  loadLighthouse?: () => Promise<LighthouseModule>;
+}
+
+export interface AuditSession {
+  readonly port: number;
+  /** Warm-up plus every measured run for one URL, using the shared browser. */
+  auditTarget(url: string, options: AuditOptions): Promise<AuditResult>;
+  /** Kills the browser once. Safe to call more than once. */
+  close(): Promise<void>;
+}
+
+export interface AuditTargetResult {
+  result: AuditResult;
+  method?: 'lighthouse' | 'fast';
+  enforcedBudgets?: string[];
+}
+
+export interface AuditTargetSpec {
+  url: string;
+  /** Serialisable options for the concurrent worker path. */
+  options?: AuditOptions;
+  /** Main-thread override used by `--fast`; only valid with concurrency 1. */
+  audit?: (session: AuditSession) => Promise<AuditTargetResult>;
+}
+
+export type AuditTargetOutcome =
+  | {
+      url: string;
+      status: 'ok';
+      result: AuditResult;
+      method?: 'lighthouse' | 'fast';
+      enforcedBudgets?: string[];
+    }
+  | { url: string; status: 'error'; error: string };
+
+export interface AuditTargetsOptions {
+  /** Maximum number of URLs in flight. Runs for one URL stay sequential. */
+  concurrency?: number;
+  /** Called once per target before its warm-up starts. */
+  onTargetStart?: (target: AuditTargetSpec) => void;
+  /** Progress forwarded from a concurrent worker. */
+  onProgress?: (event: AuditProgressEvent) => void;
+  /** Aborting asks worker lanes to close their browsers and stop. */
+  signal?: AbortSignal;
 }
 
 function richerText(current: string | undefined, next: string | undefined): string | undefined {
@@ -317,35 +378,99 @@ async function measureOnce(
   throw new Error(`Audit failed for ${url} on run ${runLabel} after ${retries + 1} attempt(s): ${message}`);
 }
 
-export async function runAudit(url: string, options: AuditOptions): Promise<AuditResult> {
+async function measureTarget(
+  url: string,
+  options: AuditOptions,
+  chromePort: number,
+  lighthouse: LighthouseRunner,
+  skipAudits: string[],
+): Promise<AuditResult> {
   if (!Number.isInteger(options.runs) || options.runs < 1) {
     throw new Error(`runs must be a positive integer, received ${options.runs}`);
   }
 
-  const binary = findChromeBinary();
-  if (!binary.path) throw new Error(binary.detail);
-
-  // Resolve once so a missing secret fails before Chrome is launched.
+  // Resolve per target so a missing secret fails this URL, not the whole session.
   const extraHeaders = options.auth ? resolveAuthHeaders(options.auth) : undefined;
   const warmup = options.warmup ?? 'navigate';
   const onProgress = options.onProgress ?? (() => {});
 
+  if (warmup !== 'none') {
+    const startedAt = Date.now();
+    onProgress({ phase: 'warmup', url, status: 'start' });
+    if (warmup === 'navigate') {
+      await warmUpNavigation(url, chromePort);
+    } else {
+      // Legacy behaviour: pay for one discarded Lighthouse run.
+      await measureOnce(url, chromePort, options, 'warm-up', lighthouse, skipAudits, extraHeaders);
+    }
+    onProgress({ phase: 'warmup', url, status: 'done', durationMs: Date.now() - startedAt });
+  }
+
+  const results: AuditResult[] = [];
+  for (let run = 0; run < options.runs; run += 1) {
+    const startedAt = Date.now();
+    const runLabel = run + 1;
+    onProgress({ phase: 'run', url, run: runLabel, runs: options.runs, status: 'start' });
+    try {
+      results.push(
+        await measureOnce(url, chromePort, options, runLabel, lighthouse, skipAudits, extraHeaders),
+      );
+    } catch (error) {
+      onProgress({
+        phase: 'run',
+        url,
+        run: runLabel,
+        runs: options.runs,
+        status: 'failed',
+        durationMs: Date.now() - startedAt,
+      });
+      throw error;
+    }
+    onProgress({
+      phase: 'run',
+      url,
+      run: runLabel,
+      runs: options.runs,
+      status: 'done',
+      durationMs: Date.now() - startedAt,
+    });
+  }
+
+  return pickMedianRun(results);
+}
+
+async function defaultLaunchChrome(chromePath: string): Promise<ChromeInstance> {
+  return chromeLauncher.launch({
+    chromePath,
+    // --no-sandbox and --disable-dev-shm-usage are required in containers and
+    // common on WSL, where the default Chrome sandbox cannot start.
+    chromeFlags: ['--headless=new', '--no-sandbox', '--disable-gpu', '--disable-dev-shm-usage'],
+  });
+}
+
+/**
+ * Launches Chrome once and loads Lighthouse once. `auditTarget` then runs the
+ * warm-up and every measured run for a URL in that browser, so a multi-URL
+ * command pays the launch cost once.
+ *
+ * The browser is killed by `close()`; callers must call it in a `finally`.
+ */
+export async function createAuditSession(deps: AuditSessionDeps = {}): Promise<AuditSession> {
+  const binary = findChromeBinary();
+  if (!binary.path) throw new Error(binary.detail);
+
+  const launch = deps.launchChrome ?? defaultLaunchChrome;
+  const importLighthouse = deps.loadLighthouse ?? loadLighthouse;
+
   // Start the Lighthouse import and the browser together: the import is the
   // larger of the two, so the Chrome launch is effectively free.
   const [chromeResult, lighthouseResult] = await Promise.allSettled([
-    chromeLauncher
-      .launch({
-        chromePath: binary.path,
-        // --no-sandbox and --disable-dev-shm-usage are required in containers and
-        // common on WSL, where the default Chrome sandbox cannot start.
-        chromeFlags: ['--headless=new', '--no-sandbox', '--disable-gpu', '--disable-dev-shm-usage'],
-      })
-      .catch((error: unknown) => {
-        const message = error instanceof Error ? error.message : String(error);
-        const context = binary.wsl ? ' WSL tip: install Chrome for Linux inside the distro.' : '';
-        throw new Error(`Could not launch Chrome at ${binary.path}.${context} ${message}`);
-      }),
-    loadLighthouse(),
+    launch(binary.path).catch((error: unknown) => {
+      const message = error instanceof Error ? error.message : String(error);
+      const context = binary.wsl ? ' WSL tip: install Chrome for Linux inside the distro.' : '';
+      throw new Error(`Could not launch Chrome at ${binary.path}.${context} ${message}`);
+    }),
+    importLighthouse(),
   ]);
 
   if (chromeResult.status === 'rejected') throw chromeResult.reason;
@@ -358,50 +483,236 @@ export async function runAudit(url: string, options: AuditOptions): Promise<Audi
   const chrome = chromeResult.value;
   const lighthouse = lighthouseResult.value.default;
   const skipAudits = computePerformanceSkipAudits(lighthouseResult.value.defaultConfig);
+  let closed = false;
 
-  try {
-    if (warmup !== 'none') {
-      const startedAt = Date.now();
-      onProgress({ phase: 'warmup', status: 'start' });
-      if (warmup === 'navigate') {
-        await warmUpNavigation(url, chrome.port);
-      } else {
-        // Legacy behaviour: pay for one discarded Lighthouse run.
-        await measureOnce(url, chrome.port, options, 'warm-up', lighthouse, skipAudits, extraHeaders);
-      }
-      onProgress({ phase: 'warmup', status: 'done', durationMs: Date.now() - startedAt });
+  return {
+    port: chrome.port,
+    auditTarget: (url, options) => measureTarget(url, options, chrome.port, lighthouse, skipAudits),
+    close: async () => {
+      if (closed) return;
+      closed = true;
+      await chrome.kill();
+    },
+  };
+}
+
+interface WorkerItem {
+  index: number;
+  url: string;
+  options: AuditOptions;
+}
+
+interface WorkerProgressMessage {
+  type: 'progress';
+  index: number;
+  event: AuditProgressEvent;
+}
+
+type WorkerMessage =
+  | { type: 'start'; index: number }
+  | WorkerProgressMessage
+  | { type: 'result'; index: number; result: AuditResult }
+  | { type: 'error'; index: number; message: string }
+  | { type: 'done' };
+
+/** Worker entry file next to this module (`.ts` under tsx/vitest, `.js` in dist). */
+function workerEntry(): URL {
+  const here = new URL(import.meta.url);
+  return new URL(here.pathname.endsWith('.ts') ? './audit-worker.ts' : './audit-worker.js', here);
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+/**
+ * Lighthouse keeps a browser-wide tracing session and module-level trace-engine
+ * singletons, so two audits cannot run concurrently in one process or one
+ * Chrome. Each lane therefore gets its own worker thread and Chrome, which is
+ * what `--concurrency` means. The default (1) stays on the main thread and uses
+ * a single shared Chrome.
+ */
+async function auditTargetsInWorkers(
+  targets: readonly AuditTargetSpec[],
+  options: AuditTargetsOptions,
+  concurrency: number,
+): Promise<AuditTargetOutcome[]> {
+  for (const target of targets) {
+    if (!target.options) {
+      throw new Error(`Concurrent audits need serialisable options for ${target.url}`);
     }
+  }
 
-    const results: AuditResult[] = [];
-    for (let run = 0; run < options.runs; run += 1) {
-      const startedAt = Date.now();
-      const runLabel = run + 1;
-      onProgress({ phase: 'run', run: runLabel, runs: options.runs, status: 'start' });
+  const { Worker } = await import('node:worker_threads');
+  const outcomes = new Array<AuditTargetOutcome | undefined>(targets.length);
+  const lanes = Math.min(concurrency, targets.length);
+  const batches: WorkerItem[][] = Array.from({ length: lanes }, () => []);
+  const workers = new Set<InstanceType<typeof Worker>>();
+
+  targets.forEach((target, index) => {
+    batches[index % lanes].push({ index, url: target.url, options: target.options! });
+  });
+
+  const shutdown = (): void => {
+    for (const worker of workers) {
       try {
-        results.push(
-          await measureOnce(url, chrome.port, options, runLabel, lighthouse, skipAudits, extraHeaders),
-        );
-      } catch (error) {
-        onProgress({
-          phase: 'run',
-          run: runLabel,
-          runs: options.runs,
-          status: 'failed',
-          durationMs: Date.now() - startedAt,
-        });
-        throw error;
+        worker.postMessage({ type: 'shutdown' });
+      } catch {
+        // The lane already exited.
       }
-      onProgress({
-        phase: 'run',
-        run: runLabel,
-        runs: options.runs,
-        status: 'done',
-        durationMs: Date.now() - startedAt,
-      });
     }
+    // A stuck worker must not keep the process alive forever.
+    const timer = setTimeout(() => {
+      for (const worker of workers) void worker.terminate().catch(() => {});
+    }, 2_000);
+    timer.unref();
+  };
 
-    return pickMedianRun(results);
+  if (options.signal) {
+    if (options.signal.aborted) shutdown();
+    else options.signal.addEventListener('abort', shutdown, { once: true });
+  }
+
+  await Promise.all(
+    batches.map(
+      (batch) =>
+        new Promise<void>((resolve) => {
+          const worker = new Worker(workerEntry(), {
+            workerData: { items: batch },
+            execArgv: process.execArgv,
+          });
+          workers.add(worker);
+          let finished = false;
+
+          const finish = (): void => {
+            if (finished) return;
+            finished = true;
+            workers.delete(worker);
+            for (const item of batch) {
+              outcomes[item.index] ??= {
+                url: item.url,
+                status: 'error',
+                error: options.signal?.aborted ? 'Audit aborted' : 'Worker exited before returning a result',
+              };
+            }
+            resolve();
+          };
+
+          if (options.signal?.aborted) {
+            try {
+              worker.postMessage({ type: 'shutdown' });
+            } catch {
+              // Already gone.
+            }
+          }
+
+          worker.on('message', (message: WorkerMessage) => {
+            if (message.type === 'start') {
+              options.onTargetStart?.(targets[message.index]);
+            } else if (message.type === 'progress') {
+              options.onProgress?.(message.event);
+            } else if (message.type === 'result') {
+              outcomes[message.index] = {
+                url: targets[message.index].url,
+                status: 'ok',
+                result: message.result,
+                method: 'lighthouse',
+              };
+            } else if (message.type === 'error') {
+              outcomes[message.index] = {
+                url: targets[message.index].url,
+                status: 'error',
+                error: message.message,
+              };
+            } else if (message.type === 'done') {
+              void worker.terminate();
+              finish();
+            }
+          });
+
+          worker.on('error', (error) => {
+            for (const item of batch) {
+              outcomes[item.index] ??= { url: item.url, status: 'error', error: errorMessage(error) };
+            }
+            finish();
+          });
+          worker.on('exit', (code) => {
+            if (code !== 0) {
+              for (const item of batch) {
+                outcomes[item.index] ??= {
+                  url: item.url,
+                  status: 'error',
+                  error: `Audit worker exited with code ${code}`,
+                };
+              }
+            }
+            finish();
+          });
+        }),
+    ),
+  );
+
+  options.signal?.removeEventListener('abort', shutdown);
+  return outcomes as AuditTargetOutcome[];
+}
+
+/**
+ * Audits several URLs with bounded overlap. Runs for a single URL stay
+ * sequential. At concurrency 1 the supplied session reuses one Chrome for the
+ * whole run; higher values use one worker thread and Chrome per lane.
+ * Outcomes are returned in target order, and one failed URL never stops the
+ * others.
+ */
+export async function auditTargets(
+  session: AuditSession | undefined,
+  targets: readonly AuditTargetSpec[],
+  options: AuditTargetsOptions = {},
+): Promise<AuditTargetOutcome[]> {
+  const concurrency = options.concurrency ?? 1;
+  if (concurrency > 1) return auditTargetsInWorkers(targets, options, concurrency);
+  if (!session) throw new Error('A session is required for a sequential audit');
+
+  const outcomes = await mapWithConcurrency(targets, 1, async (target) => {
+    options.onTargetStart?.(target);
+    try {
+      const audited = target.audit
+        ? await target.audit(session)
+        : {
+            result: await session.auditTarget(target.url, {
+              ...target.options!,
+              onProgress: options.onProgress,
+            }),
+          };
+      return {
+        url: target.url,
+        status: 'ok' as const,
+        result: audited.result,
+        method: audited.method,
+        enforcedBudgets: audited.enforcedBudgets,
+      };
+    } catch (error) {
+      return {
+        url: target.url,
+        status: 'error' as const,
+        error: errorMessage(error),
+      };
+    }
+  });
+  return outcomes;
+}
+
+export async function runAudit(url: string, options: AuditOptions): Promise<AuditResult> {
+  if (!Number.isInteger(options.runs) || options.runs < 1) {
+    throw new Error(`runs must be a positive integer, received ${options.runs}`);
+  }
+
+  // Resolve once so a missing secret fails before Chrome is launched.
+  if (options.auth) resolveAuthHeaders(options.auth);
+
+  const session = await createAuditSession();
+  try {
+    return await session.auditTarget(url, options);
   } finally {
-    await chrome.kill();
+    await session.close();
   }
 }

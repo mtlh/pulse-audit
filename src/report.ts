@@ -3,6 +3,7 @@ import type {
   ApiBudgetSet,
   ApiReportEntry,
   ApiResult,
+  AuditMethod,
   AuditResult,
   Preset,
   PulseConfig,
@@ -10,13 +11,16 @@ import type {
   ReportEntry,
 } from './types.js';
 
-// v3 adds the separate authenticated API timing results.
-export const REPORT_VERSION = '3';
+// v4 adds the audit method and the budgets a fast pre-check actually enforced.
+export const REPORT_VERSION = '4';
 
 export interface ReportInput {
   result: AuditResult;
   baseline: AuditResult | null;
   config: PulseConfig;
+  /** Defaults to `lighthouse` for callers that predate the cheap pre-check. */
+  method?: AuditMethod;
+  enforcedBudgets?: string[];
 }
 
 export interface ApiReportInput {
@@ -42,7 +46,12 @@ export function reportEntry(input: ReportInput): ReportEntry {
     audit,
     baseline,
     checks: compareResult(audit, baseline, input.config),
+    method: input.method ?? 'lighthouse',
   };
+
+  if (input.enforcedBudgets && input.enforcedBudgets.length > 0) {
+    entry.enforcedBudgets = input.enforcedBudgets;
+  }
 
   if (ignoreRules && ignoreRules.length > 0) {
     const ignored = input.result.violations.filter((violation) => ignoreRules.includes(violation.id));

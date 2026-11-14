@@ -61,6 +61,14 @@ export function renderMarkdown(report: PulseReport): string {
 
   for (const entry of report.results) {
     lines.push(`### ${entry.url}`, '');
+    if (entry.method === 'fast') {
+      lines.push(
+        `> ⚠️ **Fast pre-check.** Enforced: ${
+          entry.enforcedBudgets?.join(', ') ?? 'no budgets'
+        }. Performance timings were not measured; performance budgets are not fully enforced.`,
+        '',
+      );
+    }
     lines.push(...checkTable(entry.checks));
 
     const spread = spreadLine(spreadParts(entry));

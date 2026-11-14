@@ -49,6 +49,8 @@
     "test:e2e": "node scripts/run-e2e.mjs",
     "prebattle-test": "npm run build",
     "battle-test": "node scripts/battle-test.mjs",
+    "prebench": "npm run build",
+    "bench": "node scripts/bench.mjs",
     "test:watch": "vitest",
     "typecheck": "tsc --noEmit",
     "format": "prettier --write .",

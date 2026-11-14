@@ -427,14 +427,23 @@ function renderEntry(entry: ReportEntry, index: number): string {
   const meta = [
     entry.audit.preset,
     `${measuredRuns(entry)} run${measuredRuns(entry) === 1 ? '' : 's'}`,
+    entry.method === 'fast' ? 'fast pre-check' : 'Lighthouse',
     entry.baseline ? 'compared to baseline' : 'no baseline',
   ].join(' · ');
+
+  const fastNote =
+    entry.method === 'fast'
+      ? `<p class="notes"><strong>Fast pre-check.</strong> Enforced: ${escapeHtml(
+          entry.enforcedBudgets?.join(', ') ?? 'no budgets',
+        )}. Performance timings were not measured, so performance budgets are not fully enforced.</p>`
+      : '';
 
   return `<section class="report" id="url-${index + 1}">
     <div class="report-head">
       <h2>${escapeHtml(entry.url)}</h2>
       <p class="muted">${escapeHtml(meta)}</p>
     </div>
+    ${fastNote}
     ${renderChecks(entry.checks)}
     <div class="grid">
       ${renderLcp(entry)}

@@ -190,7 +190,7 @@ function apiEntry(overrides: Partial<ApiReportEntry> = {}): ApiReportEntry {
 
 function report(overrides: Partial<PulseReport> = {}): PulseReport {
   return {
-    version: '3',
+    version: '4',
     generatedAt: '2026-11-02T00:00:00.000Z',
     preset: 'mobile',
     presets: ['mobile'],

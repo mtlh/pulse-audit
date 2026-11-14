@@ -6,6 +6,8 @@ export type Preset = 'mobile' | 'desktop';
  * - `none` starts measuring on a cold browser.
  */
 export type WarmupMode = 'full' | 'navigate' | 'none';
+/** How a page result was produced. `fast` is the opt-in cheap pre-check. */
+export type AuditMethod = 'lighthouse' | 'fast';
 export type Severity = 'error' | 'warn';
 export type Status = 'pass' | 'fail' | 'warn';
 export type A11yImpact = 'critical' | 'serious' | 'moderate' | 'minor';
@@ -105,6 +107,8 @@ export interface PulseConfig {
   timeoutMs?: number;
   /** Browser warm-up before the measured runs. Defaults to `navigate`. */
   warmup?: WarmupMode;
+  /** Maximum number of page URLs audited at once. Runs for one URL stay sequential. */
+  concurrency?: number;
   urls: Array<string | PageTarget>;
   budgets: BudgetSet;
   /** Authenticated API endpoints measured with fetch instead of Lighthouse. */
@@ -284,6 +288,10 @@ export interface ReportEntry {
   audit: AuditResult;
   baseline: AuditResult | null;
   checks: Check[];
+  /** `fast` means Lighthouse was skipped by the opt-in pre-check. */
+  method?: AuditMethod;
+  /** Budget metrics the fast pre-check actually enforced. */
+  enforcedBudgets?: string[];
   /** Axe rules removed before comparison, shown so suppression stays visible. */
   ignoredRules?: string[];
   /** Violation nodes removed by `ignoreRules`. */

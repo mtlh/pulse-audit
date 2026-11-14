@@ -64,6 +64,23 @@ export function linuxChromeCandidates(home = homedir()): string[] {
   ];
 }
 
+/**
+ * Worker threads on Windows can receive environment keys with their original
+ * casing only (`ProgramFiles`), while chrome-launcher looks up the uppercase
+ * form. Mirror the aliases so Chrome discovery works in a concurrency lane too.
+ */
+function ensureWindowsEnvAliases(env: NodeJS.ProcessEnv, platform: NodeJS.Platform): void {
+  if (platform !== 'win32') return;
+  const aliases = [
+    ['PROGRAMFILES', 'ProgramFiles'],
+    ['PROGRAMFILES(X86)', 'ProgramFiles(x86)'],
+    ['LOCALAPPDATA', 'LocalAppData'],
+  ] as const;
+  for (const [canonical, variant] of aliases) {
+    if (!env[canonical] && env[variant]) env[canonical] = env[variant];
+  }
+}
+
 function wslMissingDetail(): string {
   return [
     'WSL detected, but no Linux Chrome/Chromium was found.',
@@ -81,6 +98,7 @@ function wslMissingDetail(): string {
 export function findChromeBinary(options: ChromeLookupOptions = {}): ChromeLookup {
   const env = options.env ?? process.env;
   const platform = options.platform ?? process.platform;
+  ensureWindowsEnvAliases(env, platform);
   const fileExists = options.fileExists ?? defaultFileExists;
   const wsl = isWsl(options);
 
