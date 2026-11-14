@@ -187,6 +187,12 @@ program
           format: 'count',
         },
         { label: 'Long tasks', value: metrics.longTasks, max: budgets.longTasks?.max, format: 'count' },
+        {
+          label: 'Third-party main thread',
+          value: metrics.thirdPartyMainThread,
+          max: budgets.thirdPartyMainThread?.max,
+          format: 'ms',
+        },
         { label: 'A11y nodes', value: metrics.violations, max: budgets.a11y?.maxViolations, format: 'count' },
       ];
 

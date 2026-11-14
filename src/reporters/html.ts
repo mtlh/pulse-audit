@@ -18,6 +18,7 @@ import type {
   PulseReport,
   ReportEntry,
   RequestSummary,
+  ThirdPartyCpu,
 } from '../types.js';
 import { IMPACT_ORDER } from '../util/a11y.js';
 import { VERSION } from '../version.js';
@@ -173,22 +174,59 @@ function renderFailedRequests(entry: ReportEntry): string {
 
 function renderThirdParty(entry: ReportEntry): string {
   const requests = entry.audit.thirdPartyHeaviest ?? [];
+  const cpu = entry.audit.thirdPartyCpu ?? [];
   const bytes = entry.audit.metrics.thirdPartyBytes;
   const count = entry.audit.metrics.thirdPartyRequests;
+  const sections: string[] = [];
 
-  if (requests.length === 0) {
-    if (bytes <= 0) return '';
-    return `<section class="card"><h3>Third-party requests</h3><p class="muted">${formatBytes(
-      bytes,
-    )} from third-party origins; per-request detail was not captured.</p></section>`;
+  if (requests.length > 0) {
+    sections.push(`<ul class="reqs">${requestList(requests, false)}</ul>`);
+  } else if (bytes > 0) {
+    sections.push(
+      `<p class="muted">${formatBytes(
+        bytes,
+      )} from third-party origins; per-request detail was not captured.</p>`,
+    );
   }
 
-  return `<section class="card">
-    <h3>Third-party requests <span class="muted">${count} request${
-      count === 1 ? '' : 's'
-    } · ${formatBytes(bytes)}</span></h3>
-    <ul class="reqs">${requestList(requests, false)}</ul>
-  </section>`;
+  if (cpu.length > 0) {
+    sections.push(
+      `<h4 class="subhead">Main-thread CPU time <span class="muted">${escapeHtml(
+        formatValue(entry.audit.metrics.thirdPartyMainThread, 'ms'),
+      )}</span></h4>`,
+      `<ul class="reqs">${cpuList(cpu)}</ul>`,
+    );
+  }
+
+  if (sections.length === 0) return '';
+
+  const heading =
+    requests.length > 0
+      ? `<h3>Third-party requests <span class="muted">${count} request${
+          count === 1 ? '' : 's'
+        } · ${formatBytes(bytes)}</span></h3>`
+      : '<h3>Third-party requests</h3>';
+
+  return `<section class="card">${heading}${sections.join('')}</section>`;
+}
+
+function cpuList(cpu: ThirdPartyCpu[]): string {
+  const max = Math.max(...cpu.map((item) => item.mainThreadTime), 1);
+
+  return cpu
+    .map((item) => {
+      const width = Math.max(2, Math.round((item.mainThreadTime / max) * 100));
+      return `<li class="req">
+        <div class="req-top">
+          <span class="req-url" title="${escapeHtml(item.entity)}">${escapeHtml(item.entity)}</span>
+          <span class="req-meta">${escapeHtml(formatValue(item.mainThreadTime, 'ms'))} · ${formatBytes(
+            item.transferSize,
+          )}</span>
+        </div>
+        <div class="bar"><span style="width:${width}%"></span></div>
+      </li>`;
+    })
+    .join('');
 }
 
 /**
@@ -522,6 +560,7 @@ export function renderHtml(report: PulseReport): string {
   .kind-head { margin: 34px 0 0; padding-bottom: 8px; border-bottom: 1px solid var(--border); font-size: 12px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
   .method { display: inline-block; padding: 1px 7px; border: 1px solid var(--border); border-radius: 6px; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px; font-weight: 700; letter-spacing: .04em; vertical-align: middle; }
   .muted { color: var(--muted); font-weight: 400; }
+  .subhead { margin: 16px 0 10px; font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
   .chip { display: inline-block; padding: 6px 12px; border-radius: 999px; border: 1px solid var(--border); background: var(--panel); margin-right: 8px; font-size: 13px; }
   .chip.fail { color: var(--fail); } .chip.warn { color: var(--warn); } .chip.pass { color: var(--pass); }
   .report { margin-top: 30px; }

@@ -21,6 +21,7 @@ const METRICS: AuditMetrics = {
   thirdPartyBytes: 0,
   thirdPartyRequests: 0,
   longTasks: 0,
+  thirdPartyMainThread: 0,
   violations: 0,
 };
 
@@ -177,6 +178,14 @@ describe('renderMarkdown', () => {
     expect(markdown).toContain('**Response**: 200 · 2.0 KB · 2 runs');
     expect(markdown).toContain('| TTFB | 120ms |');
     expect(markdown).toContain('**Run spread**: TTFB 100–140ms');
+  });
+
+  it('adds a third-party main-thread bullet when the metric is above zero', () => {
+    const withCpu = report();
+    withCpu.results[0].audit.metrics.thirdPartyMainThread = 640;
+
+    expect(renderMarkdown(withCpu)).toContain('- **Third-party main thread**: 640ms');
+    expect(renderMarkdown(report())).not.toContain('Third-party main thread');
   });
 });
 

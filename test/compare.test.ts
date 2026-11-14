@@ -25,6 +25,7 @@ const BASE_METRICS: AuditMetrics = {
   thirdPartyBytes: 10_000,
   thirdPartyRequests: 5,
   longTasks: 3,
+  thirdPartyMainThread: 100,
   violations: 0,
 };
 
@@ -251,6 +252,34 @@ describe('compareResult', () => {
     expect(longTasks.status).toBe('warn');
     expect(longTasks.reason).toContain('over max 10');
     expect(longTasks.reason).not.toContain('not a regression');
+  });
+
+  it('gates third-party main-thread time with the warn default', () => {
+    const baseline = withMetrics({ thirdPartyMainThread: 200 });
+    const current = withMetrics({ thirdPartyMainThread: 260 });
+    const thirdParty = check(compareResult(current, baseline, config()), 'thirdPartyMainThread');
+
+    expect(thirdParty.label).toBe('Third-party main thread');
+    expect(thirdParty.format).toBe('ms');
+    expect(thirdParty.max).toBe(200);
+    expect(thirdParty.formatted).toBe('260ms');
+    expect(thirdParty.deltaPct).toBeCloseTo(30);
+    expect(thirdParty.status).toBe('warn');
+  });
+
+  it('fails a third-party main-thread regression when the rule is an error', () => {
+    const baseline = withMetrics({ thirdPartyMainThread: 100 });
+    const current = withMetrics({ thirdPartyMainThread: 200 });
+    const rules = config({
+      budgets: {
+        ...config().budgets,
+        thirdPartyMainThread: { max: 300, regression: 10, severity: 'error' },
+      },
+    });
+    const thirdParty = check(compareResult(current, baseline, rules), 'thirdPartyMainThread');
+
+    expect(thirdParty.status).toBe('fail');
+    expect(thirdParty.reason).toContain('regressed');
   });
 
   it('counts new a11y violation nodes against the baseline', () => {

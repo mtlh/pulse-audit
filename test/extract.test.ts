@@ -46,6 +46,15 @@ function lhr(): Record<string, any> {
           ],
         },
       },
+      'third-parties-insight': {
+        details: {
+          type: 'table',
+          items: [
+            { entity: 'Google Analytics', mainThreadTime: 120.5, transferSize: 5000 },
+            { entity: 'cdn.example.net', mainThreadTime: 80, transferSize: 9000 },
+          ],
+        },
+      },
       'network-requests': {
         details: {
           items: [
@@ -169,6 +178,7 @@ describe('extractResult', () => {
       thirdPartyBytes: 16_000,
       thirdPartyRequests: 3,
       longTasks: 3,
+      thirdPartyMainThread: 200.5,
       violations: 4,
     });
     expect(result.lighthouseVersion).toBe('13.6.0');
@@ -329,10 +339,12 @@ describe('extractResult', () => {
       thirdPartyBytes: 0,
       thirdPartyRequests: 0,
       longTasks: 0,
+      thirdPartyMainThread: 0,
       violations: 0,
     });
     expect(result.heaviest).toEqual([]);
     expect(result.thirdPartyHeaviest).toEqual([]);
+    expect(result.thirdPartyCpu).toEqual([]);
     expect(result.lcpElement).toBeUndefined();
     expect(result.longTaskDetails).toBeUndefined();
   });
@@ -404,5 +416,52 @@ describe('extractResult', () => {
     const result = extractResult(raw, 'https://example.com/', 'mobile', 1);
     expect(result.metrics.thirdPartyBytes).toBe(20);
     expect(result.metrics.thirdPartyRequests).toBe(1);
+  });
+
+  it('sums third-party main-thread time from the third-parties insight', () => {
+    const result = extractResult(lhr(), 'https://example.com/', 'mobile', 3);
+
+    expect(result.metrics.thirdPartyMainThread).toBeCloseTo(200.5);
+    expect(result.thirdPartyCpu).toEqual([
+      { entity: 'Google Analytics', mainThreadTime: 120.5, transferSize: 5000 },
+      { entity: 'cdn.example.net', mainThreadTime: 80, transferSize: 9000 },
+    ]);
+  });
+
+  it('falls back to third-party-summary and its blocking time', () => {
+    const raw = lhr();
+    delete raw.audits['third-parties-insight'];
+    raw.audits['third-party-summary'] = {
+      details: {
+        items: [
+          { entity: { text: 'Legacy Vendor' }, mainThreadTime: 100, transferSize: 2000 },
+          { entity: 'Blocking Vendor', blockingTime: 50, transferSize: 1000 },
+        ],
+      },
+    };
+
+    const result = extractResult(raw, 'https://example.com/', 'mobile', 3);
+
+    expect(result.metrics.thirdPartyMainThread).toBe(150);
+    expect(result.thirdPartyCpu).toEqual([
+      { entity: 'Legacy Vendor', mainThreadTime: 100, transferSize: 2000 },
+      { entity: 'Blocking Vendor', mainThreadTime: 50, transferSize: 1000 },
+    ]);
+  });
+
+  it('keeps only the ten most expensive third-party entities in the detail list', () => {
+    const raw = lhr();
+    raw.audits['third-parties-insight'].details.items = Array.from({ length: 12 }, (_, index) => ({
+      entity: `vendor-${index}`,
+      mainThreadTime: index + 1,
+      transferSize: 100,
+    }));
+
+    const result = extractResult(raw, 'https://example.com/', 'mobile', 1);
+
+    expect(result.metrics.thirdPartyMainThread).toBe(78);
+    expect(result.thirdPartyCpu).toHaveLength(10);
+    expect(result.thirdPartyCpu?.[0]?.entity).toBe('vendor-11');
+    expect(result.thirdPartyCpu?.[9]?.entity).toBe('vendor-2');
   });
 });
