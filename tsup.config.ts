@@ -1,4 +1,5 @@
 import { defineConfig } from 'tsup';
+import { lighthouseBundlePlugin } from './scripts/lighthouse-build.mjs';
 
 export default defineConfig({
   entry: {
@@ -17,14 +18,32 @@ export default defineConfig({
   // chrome-launcher at startup.
   splitting: true,
   shims: false,
-  // Bundle the small dependencies that are not needed on disk. zod stays
-  // external because the published types reference it; chrome-launcher stays
-  // external because Lighthouse depends on it anyway; Lighthouse and
-  // puppeteer-core stay external for now.
-  noExternal: ['commander', 'picocolors'],
-  minify: true,
+  // Bundle the small dependencies and Lighthouse itself, so an install only
+  // unpacks puppeteer-core and zod. zod stays external because the published
+  // types reference it. Sentry is only imported when Lighthouse's CLI error
+  // reporting is enabled, which Pulse never does; keeping it external drops the
+  // whole @sentry/node tree from the install.
+  noExternal: ['commander', 'picocolors', 'chrome-launcher', 'lighthouse'],
+  external: ['puppeteer-core', '@sentry/node'],
+  // Some bundled CJS dependencies call require() for Node builtins. An ESM
+  // bundle has no require, so provide one before esbuild's __require helper
+  // runs. This is a standard esbuild ESM banner, not a Lighthouse patch.
+  banner: {
+    js: `import { createRequire as __pulseCreateRequire } from 'node:module'; const require = __pulseCreateRequire(import.meta.url);`,
+  },
+  // Identifier minification is off on purpose: esbuild emits a separate
+  // __name helper per chunk, and Lighthouse injects one helper name into page
+  // functions. Renaming identifiers would make those names disagree across
+  // chunks. Whitespace and syntax minification are safe and still shrink dist.
+  minify: false,
   esbuildOptions(options) {
     // Minification must not erase names that show up in stack traces.
     options.keepNames = true;
+    options.minifyWhitespace = true;
+    options.minifySyntax = true;
+    options.minifyIdentifiers = false;
+    // The license collector reads the list of bundled packages from it.
+    options.metafile = true;
   },
+  esbuildPlugins: [lighthouseBundlePlugin()],
 });

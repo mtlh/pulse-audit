@@ -41,7 +41,7 @@ const DESKTOP_THROTTLING = {
 // Lighthouse is a heavy module tree (~1.6 s to import). Loading it lazily
 // keeps `pulse doctor`, `baseline`, `--version` and library imports fast, and
 // lets the audit start the import alongside the Chrome launch.
-type LighthouseModule = typeof import('lighthouse');
+type LighthouseModule = typeof import('./lighthouse.js');
 type LighthouseRunner = LighthouseModule['default'];
 interface PuppeteerPage {
   goto(url: string, options: { waitUntil: 'load'; timeout: number }): Promise<unknown>;
@@ -60,7 +60,7 @@ let puppeteerModule: Promise<PuppeteerModule> | undefined;
 function loadLighthouse(): Promise<LighthouseModule> {
   // Return the whole namespace so both the runner and `defaultConfig` (used to
   // derive the audit skip list) come from the same cached import.
-  lighthouseModule ??= import('lighthouse');
+  lighthouseModule ??= import('./lighthouse.js');
   return lighthouseModule;
 }
 

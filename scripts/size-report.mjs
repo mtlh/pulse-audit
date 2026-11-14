@@ -454,6 +454,16 @@ async function main() {
       const versionLoaded = touchedPackageFiles(path.join(traceDir, 'version.txt'));
       const auditLoaded = touchedPackageFiles(path.join(traceDir, 'audit.txt'));
 
+      const installedLighthousePackage = path.join(nodeModules, 'lighthouse', 'package.json');
+      const lighthouseVersion = JSON.parse(
+        await readFile(
+          existsSync(installedLighthousePackage)
+            ? installedLighthousePackage
+            : path.join(repoRoot, 'node_modules/lighthouse/package.json'),
+          'utf8',
+        ),
+      ).version;
+
       const result = {
         title,
         measurement: {
@@ -461,9 +471,7 @@ async function main() {
           node: process.versions.node,
           platform: `${process.platform} ${process.arch}`,
           version: packageJson.version,
-          lighthouseVersion: JSON.parse(
-            await readFile(path.join(nodeModules, 'lighthouse', 'package.json'), 'utf8'),
-          ).version,
+          lighthouseVersion,
         },
         package: {
           tarballBytes: tarStat.size,
