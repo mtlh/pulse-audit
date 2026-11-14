@@ -52,6 +52,7 @@
     "prebench": "npm run build",
     "bench": "node scripts/bench.mjs",
     "test:watch": "vitest",
+    "size:report": "node scripts/size-report.mjs",
     "typecheck": "tsc --noEmit",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
