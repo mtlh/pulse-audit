@@ -1,10 +1,10 @@
 import { mkdir, readFile } from 'node:fs/promises';
-import { createRequire } from 'node:module';
 import { resolveRequestHeaders } from './auth.js';
 import { apiBaselineKey, baselineKey, baselinePath, lighthouseMajor, readBaseline } from './baseline.js';
 import { findChromeBinary } from './chrome.js';
 import { expectedStatus } from './compare.js';
 import { loadConfig, resolveApiTargets, resolveTargets, targetUrl } from './config.js';
+import { LIGHTHOUSE_VERSION } from './lighthouse-version.js';
 import type { BaselineFile, PulseConfig, ResolvedApiTarget } from './types.js';
 
 export type DoctorStatus = 'pass' | 'warn' | 'fail';
@@ -158,15 +158,9 @@ async function inspectBaseline(path: string): Promise<{ check: DoctorCheck; base
   }
 }
 
-/** The installed Lighthouse major, used to explain a baseline that cannot compare. */
+/** The bundled Lighthouse major, used to explain a baseline that cannot compare. */
 function installedLighthouseMajor(): number | null {
-  try {
-    const require = createRequire(import.meta.url);
-    const pkg = require('lighthouse/package.json') as { version?: unknown };
-    return typeof pkg.version === 'string' ? lighthouseMajor(pkg.version) : null;
-  } catch {
-    return null;
-  }
+  return lighthouseMajor(LIGHTHOUSE_VERSION);
 }
 
 function checkTargets(
