@@ -5,7 +5,7 @@ import pc from 'picocolors';
 import type { DoctorCheck } from './doctor.js';
 import type { ApiReportInput, ReportInput } from './report.js';
 import type { AuditProgressEvent, AuditSession, AuditTargetSpec } from './runner.js';
-import type { Preset, PulseConfig, WarmupMode } from './types.js';
+import type { ApiResult, AuditResult, Preset, PulseConfig, WarmupMode } from './types.js';
 import { DEFAULT_TIMEOUT_MS } from './util/defaults.js';
 import { errorMessage } from './util/errors.js';
 import { eventLoopDrains, flushStream } from './util/exit.js';
@@ -29,6 +29,14 @@ async function exists(path: string): Promise<boolean> {
  */
 function isConfigError(error: unknown): error is Error {
   return error instanceof Error && error.name === 'PulseConfigError';
+}
+
+/**
+ * Baseline files are user-editable JSON, so a missing key is a real case even
+ * though the record type describes stored entries.
+ */
+function baselineEntry<T>(record: Record<string, T>, key: string): T | undefined {
+  return Object.hasOwn(record, key) ? record[key] : undefined;
 }
 
 function parseInteger(value: string | undefined, flag: string, min: number, max: number): number | undefined {
@@ -342,7 +350,7 @@ program
 
       const inputs: ReportInput[] = [];
       const apiInputs: ApiReportInput[] = [];
-      const errors: Array<{ url: string; message: string }> = [];
+      const errors: { url: string; message: string }[] = [];
 
       if (useFast) {
         // Printed even under --quiet/--json: this mode deliberately does not
@@ -370,7 +378,7 @@ program
 
       const pageTargets: AuditTargetSpec[] = pages.map((page) => {
         const pageUrl = targetUrl(page);
-        const rawBaseline = baseline.results[baselineKey(page.preset, pageUrl)];
+        const rawBaseline = baselineEntry(baseline.results, baselineKey(page.preset, pageUrl));
         const baseOptions = {
           preset: page.preset,
           runs: page.runs,
@@ -491,7 +499,7 @@ program
           continue;
         }
 
-        const raw = baseline.results[baselineKey(page.preset, outcome.url)];
+        const raw = baselineEntry(baseline.results, baselineKey(page.preset, outcome.url));
         const comparable = comparableBaseline(raw, outcome.result);
         if (raw && !comparable) {
           warn(
@@ -634,8 +642,9 @@ baselineCommand
     const { formatValue } = await import('./format.js');
 
     const file = await readBaseline(options.baseline);
-    const entries = Object.entries(file.results);
-    const apiEntries = Object.entries(file.apiResults ?? {});
+    // Persisted entries may predate fields added by a later schema version.
+    const entries: [string, Partial<AuditResult>][] = Object.entries(file.results);
+    const apiEntries: [string, Partial<ApiResult>][] = Object.entries(file.apiResults ?? {});
 
     if (entries.length === 0 && apiEntries.length === 0) {
       console.log(`No baseline results in ${options.baseline}.`);

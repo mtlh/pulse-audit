@@ -9,9 +9,11 @@ import {
 // The suite runs against the installed Lighthouse version, so a major bump that
 // removes one of the audits Pulse reads (or changes the `defaultConfig` export)
 // fails here instead of silently returning zeroed metrics at audit time.
+type SkipConfig = Parameters<typeof computePerformanceSkipAudits>[0];
+
 describe('Lighthouse performance audit skip list', () => {
-  const config = defaultConfig as any;
-  const perfAuditRefs: Array<{ id?: string }> | undefined = config?.categories?.performance?.auditRefs;
+  const config = defaultConfig as unknown as SkipConfig;
+  const perfAuditRefs: readonly { id?: string }[] | undefined = config?.categories?.performance?.auditRefs;
   const installedIds = new Set((perfAuditRefs ?? []).map((ref) => ref.id));
 
   it('runs the best-practices category for the console error audit', () => {
@@ -54,7 +56,7 @@ describe('Lighthouse performance audit skip list', () => {
 
   it('falls back to an empty skip list when the config shape is missing', () => {
     expect(computePerformanceSkipAudits(undefined)).toEqual([]);
-    expect(computePerformanceSkipAudits({} as any)).toEqual([]);
-    expect(computePerformanceSkipAudits({ categories: {} } as any)).toEqual([]);
+    expect(computePerformanceSkipAudits({})).toEqual([]);
+    expect(computePerformanceSkipAudits({ categories: {} })).toEqual([]);
   });
 });

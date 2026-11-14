@@ -27,7 +27,6 @@ const sendError = (item: WorkItem, error: unknown): void => {
   });
 };
 
-let shuttingDown = false;
 let session: Awaited<ReturnType<typeof createAuditSession>> | undefined;
 const closeSession = async (): Promise<void> => {
   try {
@@ -37,10 +36,16 @@ const closeSession = async (): Promise<void> => {
   }
 };
 
+// A box keeps the value mutable across the await below, where TypeScript would
+// otherwise narrow a plain `let` to its initial value.
+const state = { shuttingDown: false };
+
 port.on('message', (message: { type?: string } | undefined) => {
   if (message?.type !== 'shutdown') return;
-  shuttingDown = true;
-  void closeSession().then(() => port.postMessage({ type: 'done' }));
+  state.shuttingDown = true;
+  void closeSession().then(() => {
+    port.postMessage({ type: 'done' });
+  });
 });
 
 try {
@@ -53,12 +58,14 @@ try {
 
 try {
   for (const item of items) {
-    if (shuttingDown) break;
+    if (state.shuttingDown) break;
     port.postMessage({ type: 'start', index: item.index });
     try {
       const result = await session.auditTarget(item.url, {
         ...item.options,
-        onProgress: (event) => port.postMessage({ type: 'progress', index: item.index, event }),
+        onProgress: (event) => {
+          port.postMessage({ type: 'progress', index: item.index, event });
+        },
       });
       port.postMessage({ type: 'result', index: item.index, result });
     } catch (error) {

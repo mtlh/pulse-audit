@@ -18,7 +18,7 @@ const enabled = process.env.PULSE_E2E === '1' && process.env.PULSE_PACKAGE === '
 const chrome = chromeAvailable();
 
 describe.skipIf(!enabled || !chrome)('user flow: install the packed package', () => {
-  let site: FixtureSite;
+  let site: FixtureSite | undefined;
   const workspaces: string[] = [];
   let tarball = '';
   let npmCli = '';
@@ -38,7 +38,7 @@ describe.skipIf(!enabled || !chrome)('user flow: install the packed package', ()
       },
     );
     expect(packed.code).toBe(0);
-    const [info] = JSON.parse(packed.stdout) as Array<{ filename: string; files: Array<{ path: string }> }>;
+    const [info] = JSON.parse(packed.stdout) as { filename: string; files: { path: string }[] }[];
     tarball = path.join(packDir, info.filename);
 
     const shipped = info.files.map((file) => file.path);
@@ -52,7 +52,7 @@ describe.skipIf(!enabled || !chrome)('user flow: install the packed package', ()
   }, 180_000);
 
   afterAll(async () => {
-    if (site) await site.close();
+    await site?.close();
   });
 
   afterEach(async () => {
@@ -93,14 +93,16 @@ describe.skipIf(!enabled || !chrome)('user flow: install the packed package', ()
     expect(version.code).toBe(0);
     expect(version.stdout.trim()).toBe(pkg.version);
 
-    const initialized = await runCommand(process.execPath, [packageCli, 'init', site.url], {
+    const initialized = await runCommand(process.execPath, [packageCli, 'init', site!.url], {
       cwd: consumer,
     });
     expect(initialized.code).toBe(0);
-    expect((await readJson<{ urls: string[] }>(path.join(consumer, '.pulse.json'))).urls).toEqual([site.url]);
+    expect((await readJson<{ urls: string[] }>(path.join(consumer, '.pulse.json'))).urls).toEqual([
+      site!.url,
+    ]);
 
     // The user reviews the generated minimums and adjusts them for this page.
-    await writeConfig(consumer, passingConfig(site.url));
+    await writeConfig(consumer, passingConfig(site!.url));
 
     const audited = await runCommand(process.execPath, [packageCli, 'audit', '--runs', '1'], {
       cwd: consumer,

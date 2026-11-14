@@ -161,7 +161,7 @@ export function decideFastPath(input: FastDecisionInput): FastDecision {
     }
 
     if (rule.regression !== undefined) {
-      const baselineValue = baseline?.metrics?.[key];
+      const baselineValue = baseline?.metrics[key];
       if (baselineValue === undefined || baselineValue <= 0) {
         reasons.push(`no comparable ${key} baseline`);
       } else {
@@ -202,7 +202,7 @@ export function fastAuditResult(
     baseline !== undefined &&
     baseline !== null &&
     fingerprintsMatch(a11yFingerprint(measurement.violations), a11yFingerprint(baseline.violations));
-  const violations = sameA11y && baseline ? baseline.violations : measurement.violations;
+  const violations = sameA11y ? baseline.violations : measurement.violations;
   metrics.violations = countViolationNodes({ violations });
 
   const enabled = new Set(metricKeys);
@@ -310,6 +310,7 @@ interface AxeNodeResult {
   html?: string;
   impact?: string | null;
   failureSummary?: string;
+  element?: { outerHTML?: unknown };
 }
 
 interface AxeViolationResult {
@@ -319,9 +320,21 @@ interface AxeViolationResult {
   nodes: AxeNodeResult[];
 }
 
+interface NetworkResponseEvent {
+  requestId: string;
+  type?: string;
+  response?: { url?: string; status?: unknown };
+}
+
+interface NetworkLoadingFinishedEvent {
+  requestId: string;
+  encodedDataLength?: unknown;
+}
+
 interface Cdpsession {
   send(method: string, params?: Record<string, unknown>): Promise<unknown>;
-  on(event: string, handler: (event: any) => void): void;
+  on(event: 'Network.responseReceived', handler: (event: NetworkResponseEvent) => void): void;
+  on(event: 'Network.loadingFinished', handler: (event: NetworkLoadingFinishedEvent) => void): void;
   detach?(): Promise<void>;
 }
 
@@ -330,7 +343,7 @@ interface FastPage {
   goto(url: string, options: { waitUntil: 'load'; timeout: number }): Promise<{ status(): number } | null>;
   waitForNetworkIdle?(options: { idleTime: number; timeout: number }): Promise<void>;
   evaluate(expression: string): Promise<unknown>;
-  evaluate<T>(fn: (...args: any[]) => T, ...args: any[]): Promise<T>;
+  evaluate<T>(fn: (...args: unknown[]) => T, ...args: unknown[]): Promise<T>;
   createCDPSession(): Promise<Cdpsession>;
   close(): Promise<void>;
 }
@@ -397,8 +410,8 @@ export async function measureFast(options: FastPrecheckOptions): Promise<FastPre
       const responses = new Map<string, { url: string; type: string; status: number }>();
       const sizes = new Map<string, number>();
       client.on('Network.responseReceived', (event) => {
-        const response = event?.response;
-        if (!response?.url) return;
+        const response = event.response;
+        if (response?.url === undefined || response.url.length === 0) return;
         responses.set(event.requestId, {
           url: response.url,
           type: event.type ?? 'Other',
@@ -416,21 +429,29 @@ export async function measureFast(options: FastPrecheckOptions): Promise<FastPre
       // Give late images/fonts a chance without waiting for a hung request.
       await page
         .waitForNetworkIdle?.({ idleTime: 500, timeout: Math.min(5_000, options.timeoutMs) })
-        .catch(() => {});
+        .catch(() => {
+          // A late or hung request is not fatal for the cheap pre-check.
+        });
 
       await page.evaluate(axe.source);
       const rawViolations = await page.evaluate(async (axeOptions: unknown) => {
         // This callback is serialized and runs in the page, where the CDP
         // browser globals exist but the Node tsconfig has no DOM lib.
-        const globals = globalThis as any;
+        const globals = globalThis as unknown as {
+          axe: {
+            configure(options: Record<string, unknown>): void;
+            run(context: unknown, options: unknown): Promise<{ violations: AxeViolationResult[] }>;
+          };
+          document: unknown;
+        };
         const axeGlobal = globals.axe;
         axeGlobal.configure({ branding: { application: 'pulse-fast' }, noHtml: true });
         const results = await axeGlobal.run(globals.document, axeOptions);
-        return results.violations.map((violation: any) => ({
-          id: String(violation.id),
-          help: String(violation.help ?? violation.id),
+        return results.violations.map((violation) => ({
+          id: violation.id,
+          help: violation.help,
           impact: violation.impact ?? null,
-          nodes: (violation.nodes ?? []).map((node: any) => ({
+          nodes: violation.nodes.map((node) => ({
             target: Array.isArray(node.target) ? node.target.map(String) : [],
             html:
               typeof node.element?.outerHTML === 'string' ? node.element.outerHTML.slice(0, 500) : undefined,
@@ -440,10 +461,10 @@ export async function measureFast(options: FastPrecheckOptions): Promise<FastPre
         }));
       }, AXE_OPTIONS);
 
-      const violations: A11yViolation[] = (rawViolations as AxeViolationResult[]).map((violation) => {
+      const violations: A11yViolation[] = rawViolations.map((violation) => {
         const nodes: A11yNode[] = violation.nodes
           .map((node) => {
-            const selector = node.target?.[0] ?? '';
+            const selector = node.target.at(0) ?? '';
             return {
               selector,
               snippet: node.html,

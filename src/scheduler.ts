@@ -19,11 +19,11 @@ export async function mapWithConcurrency<T, R>(
   const results = new Array<R>(items.length);
   const workers = Math.min(limit, items.length);
   let next = 0;
-  let stopping = false;
+  const controller = new AbortController();
   const failures: unknown[] = [];
 
   const worker = async (): Promise<void> => {
-    while (!stopping) {
+    while (!controller.signal.aborted) {
       const index = next;
       next += 1;
       if (index >= items.length) return;
@@ -33,7 +33,7 @@ export async function mapWithConcurrency<T, R>(
       } catch (error) {
         failures.push(error);
         // Stop scheduling new work; workers already in flight still drain.
-        stopping = true;
+        controller.abort();
       }
     }
   };

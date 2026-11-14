@@ -59,8 +59,7 @@ const a11yBudgetSchema = z
     (rule) =>
       rule.maxViolations !== undefined ||
       rule.maxNew !== undefined ||
-      (rule.maxNewByImpact !== undefined &&
-        Object.values(rule.maxNewByImpact).some((value) => value !== undefined)),
+      (rule.maxNewByImpact !== undefined && Object.keys(rule.maxNewByImpact).length > 0),
     {
       message: 'An accessibility budget must set maxViolations, maxNew or maxNewByImpact.',
     },
@@ -79,12 +78,9 @@ const budgetsSchema = z
   })
   .strict() as unknown as z.ZodType<BudgetSet>;
 
-const auditUrlSchema = z
-  .string()
-  .url()
-  .refine((value) => /^https?:\/\//i.test(value), {
-    message: 'URL must start with http:// or https://',
-  });
+const auditUrlSchema = z.url().refine((value) => /^https?:\/\//i.test(value), {
+  message: 'URL must start with http:// or https://',
+});
 
 const authSchema = z.discriminatedUnion('type', [
   z
@@ -213,7 +209,7 @@ export async function loadConfig(path = '.pulse.json'): Promise<PulseConfig> {
     throw new PulseConfigError(`Invalid config at ${path}:\n${issues}`, path);
   }
 
-  return parsed.data as PulseConfig;
+  return parsed.data;
 }
 
 function definedEntries<T extends object>(value: T): Partial<T> {

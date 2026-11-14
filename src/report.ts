@@ -93,11 +93,13 @@ export function buildReport(inputs: ReportInput[], apiInputs: ApiReportInput[] =
   const uiRuns = entries.reduce((max, entry) => Math.max(max, entry.audit.runs), 0);
   const apiRuns = apiResults.reduce((max, entry) => Math.max(max, entry.result.runs), 0);
   const counts = countChecks(checks);
+  const inputPreset = inputs[0]?.config.preset ?? 'mobile';
+  const firstPreset: Preset = presets.length > 0 ? presets[0] : inputPreset;
 
   const report: PulseReport = {
     version: REPORT_VERSION,
     generatedAt: new Date().toISOString(),
-    preset: presets[0] ?? inputs[0]?.config.preset ?? 'mobile',
+    preset: firstPreset,
     presets,
     runs: Math.max(uiRuns, apiRuns),
     results: entries,

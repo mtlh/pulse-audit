@@ -45,13 +45,12 @@ export function resolveRequestHeaders(
     resolved[name] = expandEnv(value, env);
   }
 
-  if (auth) {
-    // HTTP header names are case-insensitive; remove a hand-written value before
-    // the auth block writes the canonical one.
-    for (const name of Object.keys(resolved)) {
-      if (name.toLowerCase() === 'authorization') delete resolved[name];
-    }
-    Object.assign(resolved, resolveAuthHeaders(auth, env));
-  }
-  return resolved;
+  if (!auth) return resolved;
+
+  // HTTP header names are case-insensitive; drop a hand-written value before
+  // the auth block writes the canonical one.
+  const withoutAuthorization = Object.fromEntries(
+    Object.entries(resolved).filter(([name]) => name.toLowerCase() !== 'authorization'),
+  );
+  return { ...withoutAuthorization, ...resolveAuthHeaders(auth, env) };
 }

@@ -109,7 +109,7 @@ export interface PulseConfig {
   warmup?: WarmupMode;
   /** Maximum number of page URLs audited at once. Runs for one URL stay sequential. */
   concurrency?: number;
-  urls: Array<string | PageTarget>;
+  urls: (string | PageTarget)[];
   budgets: BudgetSet;
   /** Authenticated API endpoints measured with fetch instead of Lighthouse. */
   api?: ApiTarget[];

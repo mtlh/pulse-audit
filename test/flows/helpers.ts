@@ -70,7 +70,9 @@ export async function runCommand(
         },
         (error, stdout, stderr) => {
           if (error) {
-            reject(Object.assign(error, { stdout, stderr }));
+            const failure = error instanceof Error ? error : new Error('Command failed');
+            Object.assign(failure, { stdout, stderr });
+            reject(failure);
           } else {
             resolve({ stdout, stderr });
           }

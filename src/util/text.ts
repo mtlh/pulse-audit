@@ -1,3 +1,6 @@
+// The ESC control character is the prefix of the escape sequence, so this
+// regex intentionally matches it.
+// eslint-disable-next-line no-control-regex
 const ANSI_ESCAPE = /\u001b\[[0-9;]*m/g;
 
 /**

@@ -54,6 +54,8 @@
     "test:watch": "vitest",
     "size:report": "node scripts/size-report.mjs",
     "typecheck": "tsc --noEmit",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "prepublishOnly": "npm run build"
@@ -63,16 +65,22 @@
     "zod": "^4.6.7"
   },
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
     "@types/node": "^26.6.6",
     "axe-core": "4.14.0",
     "chrome-launcher": "^1.2.3",
     "commander": "^15.1.0",
+    "eslint": "^10.15.0",
+    "eslint-import-resolver-typescript": "^4.4.5",
+    "eslint-plugin-import-x": "^4.18.1",
+    "globals": "^17.14.0",
     "lighthouse": "^13.6.0",
     "picocolors": "^1.1.1",
     "prettier": "^3.9.10",
     "tsup": "^9.0.0",
     "tsx": "^4.23.15",
     "typescript": "^6.0.3",
+    "typescript-eslint": "^8.72.2",
     "vitest": "^5.1.0"
   }
 }
