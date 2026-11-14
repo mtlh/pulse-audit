@@ -27,6 +27,7 @@ function metrics(overrides: Partial<AuditMetrics> = {}): AuditMetrics {
     requests: 3,
     thirdPartyBytes: 0,
     thirdPartyRequests: 0,
+    longTasks: 0,
     violations: 2,
     ...overrides,
   };
@@ -57,6 +58,7 @@ describe('config', () => {
     expect(parsed.budgets.lcp?.max).toBe(2500);
     expect(parsed.budgets.fcp?.max).toBe(1800);
     expect(parsed.budgets.thirdPartyRequests?.max).toBe(20);
+    expect(parsed.budgets.longTasks).toEqual({ max: 10, regression: 20, severity: 'warn' });
     expect(parsed.budgets.a11y?.maxNewByImpact).toEqual({ critical: 0, serious: 0 });
   });
 
@@ -107,6 +109,7 @@ describe('config', () => {
         js: { max: '250kb' },
         total: { max: '1.5mb' },
         requests: { max: '90', regression: '10%' },
+        longTasks: { max: '12' },
       },
     });
 
@@ -115,6 +118,7 @@ describe('config', () => {
     expect(parsed.budgets.total?.max).toBe(1_572_864);
     expect(parsed.budgets.requests?.max).toBe(90);
     expect(parsed.budgets.requests?.regression).toBe(10);
+    expect(parsed.budgets.longTasks?.max).toBe(12);
   });
 
   it('rejects an unbounded retry count', () => {
@@ -232,6 +236,7 @@ describe('budgetsFromResult', () => {
     expect(budgets.requests?.max).toBe(20);
     expect(budgets.thirdPartyBytes).toEqual({ max: 0, regression: 10, severity: 'warn' });
     expect(budgets.thirdPartyRequests).toEqual({ max: 0, regression: 10, severity: 'warn' });
+    expect(budgets.longTasks).toEqual({ max: 10, regression: 20, severity: 'warn' });
     expect(budgets.a11y).toEqual({
       maxViolations: 2,
       maxNew: 0,
@@ -259,6 +264,14 @@ describe('budgetsFromResult', () => {
     expect(budgets.total?.max).toBe(2_400_256);
     expect(budgets.thirdPartyBytes?.max).toBe(307_200);
     expect(budgets.thirdPartyRequests?.max).toBe(20);
+  });
+
+  it('derives a long-task budget from the measured count with a floor', () => {
+    const busy = budgetsFromResult(result({ longTasks: 12 }));
+    expect(busy.longTasks).toEqual({ max: 14, regression: 20, severity: 'warn' });
+
+    const quiet = budgetsFromResult(result({ longTasks: 3 }));
+    expect(quiet.longTasks).toEqual({ max: 10, regression: 20, severity: 'warn' });
   });
 
   it('keeps floors so a tiny page does not get an unhittable budget', () => {

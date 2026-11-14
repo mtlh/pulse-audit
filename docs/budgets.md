@@ -40,6 +40,7 @@ so the config stays valid JSON for editors and review.
 | `requests`           | Request count                  | error                                |
 | `thirdPartyBytes`    | Third-party transfer bytes     | warn                                 |
 | `thirdPartyRequests` | Third-party request count      | warn                                 |
+| `longTasks`          | Main-thread tasks ≥ 50 ms      | warn                                 |
 | `a11y`               | Accessibility violation nodes  | error                                |
 
 `max` is compared against the median of the measured runs. The first run is a warm-up and is
@@ -165,9 +166,9 @@ stay warnings.
 ## Severity
 
 `lcp`, `cls`, `fcp`, `js`, `requests` and accessibility default to `error`. `tbt`, `ttfb`,
-`css`, `fonts`, `images`, `total` and both third-party metrics default to `warn` in the
-generated config. A failing `warn` check is reported but does not set a non-zero exit code
-unless you run with `--fail-on warn`. Override per rule:
+`css`, `fonts`, `images`, `total`, `longTasks` and both third-party metrics default to `warn`
+in the generated config. A failing `warn` check is reported but does not set a non-zero exit
+code unless you run with `--fail-on warn`. Override per rule:
 
 ```json
 { "tbt": { "max": "200ms", "severity": "warn" } }
@@ -245,6 +246,7 @@ tighten it once fixes land.
 | Requests             | current + 10 (minimum 20)                                                          |
 | Third-party bytes    | current + 20%, minimum 300 KB, warning                                             |
 | Third-party requests | current + 10, minimum 20, warning                                                  |
+| Long tasks           | current + 2 (minimum 10), regression 20%, warning                                  |
 | A11y                 | `maxNew: 0`, critical/serious buckets at 0, `maxViolations` equal to today's count |
 
 Tighten after the first fixes land. A budget you cannot hit is a budget people disable.

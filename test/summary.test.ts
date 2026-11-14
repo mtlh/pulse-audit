@@ -19,6 +19,7 @@ const METRICS: AuditMetrics = {
   requests: 12,
   thirdPartyBytes: 0,
   thirdPartyRequests: 0,
+  longTasks: 0,
   violations: 0,
 };
 
@@ -133,6 +134,20 @@ describe('renderMarkdown', () => {
     single.results[0].audit.samples = [{ ...METRICS }];
 
     expect(renderMarkdown(single)).not.toContain('Run spread');
+  });
+
+  it('adds a long tasks bullet only when tasks were recorded', () => {
+    expect(renderMarkdown(report())).not.toContain('Long tasks');
+
+    const busy = report();
+    busy.results[0].audit.metrics.longTasks = 3;
+    busy.results[0].audit.longTaskDetails = [
+      { url: 'https://example.com/app.js', startTime: 100, duration: 320 },
+    ];
+
+    expect(renderMarkdown(busy)).toContain(
+      '- **Long tasks**: 3 ≥ 50ms · longest 320ms (https://example.com/app.js)',
+    );
   });
 
   it('renders API timings in a separate section', () => {

@@ -23,6 +23,7 @@ const BASE_METRICS: AuditMetrics = {
   requests: 20,
   thirdPartyBytes: 10_000,
   thirdPartyRequests: 5,
+  longTasks: 3,
   violations: 0,
 };
 
@@ -176,6 +177,48 @@ describe('compareResult', () => {
     const current = withMetrics({ tbt: 400 });
     const tbt = check(compareResult(current, baseline, config()), 'tbt');
     expect(tbt.status).toBe('warn');
+  });
+
+  it('gates long tasks as a count with warning severity by default', () => {
+    const baseline = withMetrics({ longTasks: 4 });
+    const current = withMetrics({ longTasks: 20 });
+    const longTasks = check(compareResult(current, baseline, config()), 'longTasks');
+
+    expect(longTasks.label).toBe('Long tasks');
+    expect(longTasks.format).toBe('count');
+    expect(longTasks.value).toBe(20);
+    expect(longTasks.max).toBe(10);
+    expect(longTasks.status).toBe('warn');
+    expect(longTasks.severity).toBe('warn');
+    expect(longTasks.reason).toContain('over max 10');
+  });
+
+  it('passes long tasks inside both the max and the regression tolerance', () => {
+    const longTasks = check(
+      compareResult(withMetrics({ longTasks: 7 }), withMetrics({ longTasks: 6 }), config()),
+      'longTasks',
+    );
+    expect(longTasks.status).toBe('pass');
+  });
+
+  it('warns when long tasks regress even under the absolute max', () => {
+    const longTasks = check(
+      compareResult(withMetrics({ longTasks: 7 }), withMetrics({ longTasks: 5 }), config()),
+      'longTasks',
+    );
+    expect(longTasks.status).toBe('warn');
+    expect(longTasks.reason).toContain('regressed +40.0%');
+  });
+
+  it('applies the long-task max when a stored baseline predates the metric', () => {
+    const baseline = result({
+      metrics: { ...BASE_METRICS, longTasks: undefined as unknown as number },
+    });
+    const longTasks = check(compareResult(withMetrics({ longTasks: 12 }), baseline, config()), 'longTasks');
+
+    expect(longTasks.status).toBe('warn');
+    expect(longTasks.reason).toContain('over max 10');
+    expect(longTasks.reason).not.toContain('not a regression');
   });
 
   it('counts new a11y violation nodes against the baseline', () => {

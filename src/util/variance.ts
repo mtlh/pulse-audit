@@ -19,6 +19,7 @@ export const AUDIT_METRIC_KEYS = [
   'requests',
   'thirdPartyBytes',
   'thirdPartyRequests',
+  'longTasks',
   'violations',
 ] as const satisfies readonly (keyof AuditMetrics)[];
 

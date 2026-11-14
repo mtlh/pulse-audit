@@ -34,6 +34,7 @@ const METRIC_KEYS: MetricKey[] = [
   'requests',
   'thirdPartyBytes',
   'thirdPartyRequests',
+  'longTasks',
 ];
 
 function metricBudgetSchema(parseMax: UnitParser) {
@@ -95,6 +96,7 @@ const budgetsSchema = z
     requests: metricBudgetSchema(parseCount).optional(),
     thirdPartyBytes: metricBudgetSchema(parseBytes).optional(),
     thirdPartyRequests: metricBudgetSchema(parseCount).optional(),
+    longTasks: metricBudgetSchema(parseCount).optional(),
     a11y: a11yBudgetSchema.optional(),
   })
   .strict();
@@ -381,6 +383,7 @@ export function budgetsFromResult(result: AuditResult): BudgetSet {
     requests: { max: Math.max(20, metrics.requests + 10), regression: 10 },
     thirdPartyBytes,
     thirdPartyRequests,
+    longTasks: { max: Math.max(10, metrics.longTasks + 2), regression: 20, severity: 'warn' },
     // Existing debt becomes the ceiling; new debt is what a PR should block.
     a11y: {
       maxViolations: metrics.violations,
@@ -414,6 +417,7 @@ export function defaultConfig(urls: string[]): PulseConfig {
       requests: { max: 90, regression: 10 },
       thirdPartyBytes: { max: 300 * 1024, regression: 15, severity: 'warn' },
       thirdPartyRequests: { max: 20, regression: 20, severity: 'warn' },
+      longTasks: { max: 10, regression: 20, severity: 'warn' },
       a11y: {
         maxViolations: 0,
         maxNew: 0,

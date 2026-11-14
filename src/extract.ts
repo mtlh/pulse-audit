@@ -5,6 +5,7 @@ import type {
   A11yViolation,
   AuditResult,
   LcpElement,
+  LongTaskDetail,
   Preset,
   RequestSummary,
 } from './types.js';
@@ -32,6 +33,57 @@ export function worstImpact(impacts: Array<A11yImpact | undefined>): A11yImpact 
 function numeric(lhr: Lhr, auditId: string): number {
   const value = lhr.audits?.[auditId]?.numericValue;
   return typeof value === 'number' && Number.isFinite(value) ? value : 0;
+}
+
+function finiteNumber(value: unknown): number | undefined {
+  return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
+}
+
+/** Lighthouse's long-task threshold; sub-50 ms tasks are not "long". */
+const LONG_TASK_THRESHOLD_MS = 50;
+const LONG_TASK_DETAIL_LIMIT = 5;
+
+/**
+ * Counts main-thread tasks of at least 50 ms. Lighthouse's `long-tasks` audit
+ * has no `numericValue`, so the count comes from the task list itself. The
+ * `debugData.tasks` list is complete and carries `urlIndex` into
+ * `debugData.urls`; `details.items` is only the top 20 and is kept as a
+ * fallback for older LHR shapes.
+ */
+function extractLongTasks(lhr: Lhr): { count: number; details: LongTaskDetail[] } {
+  const details = lhr.audits?.['long-tasks']?.details;
+  const debugData = details?.debugData;
+  const urls: unknown[] = Array.isArray(debugData?.urls) ? debugData.urls : [];
+  const debugTasks: any[] = Array.isArray(debugData?.tasks) ? debugData.tasks : [];
+  const itemTasks: any[] = Array.isArray(details?.items) ? details.items : [];
+  // Prefer the complete list; fall back when a stored/older LHR has only items.
+  const rawTasks = debugTasks.length > 0 ? debugTasks : itemTasks;
+
+  const tasks: LongTaskDetail[] = [];
+  for (const task of rawTasks) {
+    const duration = finiteNumber(task?.duration);
+    if (duration === undefined || duration < LONG_TASK_THRESHOLD_MS) continue;
+
+    const urlIndex = finiteNumber(task?.urlIndex);
+    const indexedUrl = urlIndex === undefined ? undefined : urls[urlIndex];
+    const attributed =
+      typeof task?.url === 'string' && task.url.length > 0
+        ? task.url
+        : typeof indexedUrl === 'string' && indexedUrl.length > 0
+          ? indexedUrl
+          : undefined;
+
+    tasks.push({
+      url: attributed,
+      startTime: finiteNumber(task?.startTime) ?? 0,
+      duration,
+    });
+  }
+
+  return {
+    count: tasks.length,
+    details: [...tasks].sort((a, b) => b.duration - a.duration).slice(0, LONG_TASK_DETAIL_LIMIT),
+  };
 }
 
 function sameOrigin(candidate: string, pageUrl: string): boolean {
@@ -130,6 +182,7 @@ export function extractResult(lhr: Lhr, url: string, preset: Preset, runs: numbe
   const requests = extractRequests(lhr, url);
   const violations = extractViolations(lhr);
   const thirdPartyRequests = requests.filter((request) => request.thirdParty);
+  const longTasks = extractLongTasks(lhr);
 
   return {
     url,
@@ -153,11 +206,13 @@ export function extractResult(lhr: Lhr, url: string, preset: Preset, runs: numbe
       requests: requests.length,
       thirdPartyBytes: sumBytes(thirdPartyRequests),
       thirdPartyRequests: thirdPartyRequests.length,
+      longTasks: longTasks.count,
       violations: countViolationNodes({ violations }),
     },
     lcpElement: extractLcpElement(lhr),
     heaviest: [...requests].sort((a, b) => b.bytes - a.bytes).slice(0, 10),
     violations,
     thirdPartyHeaviest: [...thirdPartyRequests].sort((a, b) => b.bytes - a.bytes).slice(0, 10),
+    ...(longTasks.details.length > 0 ? { longTaskDetails: longTasks.details } : {}),
   };
 }
