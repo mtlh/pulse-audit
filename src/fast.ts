@@ -1,5 +1,3 @@
-import { readFile } from 'node:fs/promises';
-import { createRequire } from 'node:module';
 import { countViolationNodes } from './compare.js';
 import type {
   A11yNode,
@@ -14,6 +12,7 @@ import type {
 } from './types.js';
 import { resolveAuthHeaders } from './auth.js';
 import { lighthouseMajor } from './baseline.js';
+import { LIGHTHOUSE_VERSION } from './lighthouse-version.js';
 
 /**
  * Metrics only a full Lighthouse run can measure comparably to a stored
@@ -278,33 +277,23 @@ interface AxeBundle {
   version: string;
 }
 
-/** The installed Lighthouse version, used to check baseline comparability. */
+/** The bundled Lighthouse version, used to check baseline comparability. */
 export function installedLighthouseVersion(): string | undefined {
-  try {
-    const require = createRequire(import.meta.url);
-    const pkg = require('lighthouse/package.json') as { version?: string };
-    return pkg.version;
-  } catch {
-    return undefined;
-  }
+  return LIGHTHOUSE_VERSION;
 }
 
 let axeBundle: Promise<AxeBundle> | undefined;
 
 /**
- * Loads the exact axe bundle Lighthouse uses. Resolving from Lighthouse's
- * package avoids comparing against a different axe build than the baseline.
+ * Returns the exact axe bundle Lighthouse uses. It is imported lazily and
+ * inlined at build time so a fast result cannot drift from the build that
+ * produced the baseline, without loading 600 KB of axe for normal audits.
  */
 function loadAxeBundle(): Promise<AxeBundle> {
-  axeBundle ??= (async () => {
-    const require = createRequire(import.meta.url);
-    const lighthouseRequire = createRequire(require.resolve('lighthouse/package.json'));
-    const pkg = lighthouseRequire('axe-core/package.json') as { version?: string };
-    return {
-      source: await readFile(lighthouseRequire.resolve('axe-core/axe.min.js'), 'utf8'),
-      version: pkg.version ?? 'unknown',
-    };
-  })();
+  axeBundle ??= import('./axe.js').then(({ AXE_SOURCE, AXE_VERSION }) => ({
+    source: AXE_SOURCE,
+    version: AXE_VERSION,
+  }));
   return axeBundle;
 }
 
