@@ -139,6 +139,7 @@ are percentages (`10` or `"10%"`); CLS and counts are numbers.
     "images": { "max": "600kb" },
     "total": { "max": "1.5mb", "severity": "warn" },
     "requests": { "max": 90 },
+    "failedRequests": { "max": 0, "regression": 0 },
     "thirdPartyBytes": { "max": "300kb", "severity": "warn" },
     "thirdPartyRequests": { "max": 20, "severity": "warn" },
     "a11y": {
@@ -188,9 +189,11 @@ are percentages (`10` or `"10%"`); CLS and counts are numbers.
   `maxNew` or `maxNewByImpact`. Inert rules are rejected at load time.
 
 Metrics: LCP, CLS, TBT, FCP, TTFB, JavaScript, CSS, fonts, images, total transfer weight,
-requests, third-party bytes, third-party requests, long main-thread tasks, and accessibility
-violations. API results add TTFB, total duration, HTTP status and response body bytes. Each
-audit also stores one sample per measured run so the report can show min/median/max spread.
+requests, failed requests, third-party bytes, third-party requests, long main-thread tasks, and
+accessibility violations. A request counts as failed when it returns 4xx/5xx or never finishes;
+redirects do not count. API results add TTFB, total duration, HTTP status and response body
+bytes. Each audit also stores one sample per measured run so the report can show min/median/max
+spread.
 
 ### UI and API tables
 

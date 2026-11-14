@@ -26,6 +26,7 @@ function metrics(overrides: Partial<AuditMetrics> = {}): AuditMetrics {
     images: 200_000,
     total: 400_000,
     requests: 3,
+    failedRequests: 0,
     thirdPartyBytes: 0,
     thirdPartyRequests: 0,
     longTasks: 0,

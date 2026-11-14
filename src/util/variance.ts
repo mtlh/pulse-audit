@@ -17,6 +17,7 @@ export const AUDIT_METRIC_KEYS = [
   'images',
   'total',
   'requests',
+  'failedRequests',
   'thirdPartyBytes',
   'thirdPartyRequests',
   'longTasks',

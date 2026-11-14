@@ -32,6 +32,7 @@ const METRIC_KEYS: MetricKey[] = [
   'images',
   'total',
   'requests',
+  'failedRequests',
   'thirdPartyBytes',
   'thirdPartyRequests',
   'longTasks',
@@ -94,6 +95,7 @@ const budgetsSchema = z
     images: metricBudgetSchema(parseBytes).optional(),
     total: metricBudgetSchema(parseBytes).optional(),
     requests: metricBudgetSchema(parseCount).optional(),
+    failedRequests: metricBudgetSchema(parseCount).optional(),
     thirdPartyBytes: metricBudgetSchema(parseBytes).optional(),
     thirdPartyRequests: metricBudgetSchema(parseCount).optional(),
     longTasks: metricBudgetSchema(parseCount).optional(),
@@ -381,6 +383,9 @@ export function budgetsFromResult(result: AuditResult): BudgetSet {
       severity: 'warn',
     },
     requests: { max: Math.max(20, metrics.requests + 10), regression: 10 },
+    // Failed subresources are a correctness gate: inherited failures become the
+    // ceiling and any increase fails, even when `max` is inherited debt.
+    failedRequests: { max: metrics.failedRequests, regression: 0 },
     thirdPartyBytes,
     thirdPartyRequests,
     longTasks: { max: Math.max(10, metrics.longTasks + 2), regression: 20, severity: 'warn' },
@@ -415,6 +420,7 @@ export function defaultConfig(urls: string[]): PulseConfig {
       images: { max: 600_000, regression: 10 },
       total: { max: 1.5 * 1024 * 1024, regression: 10, severity: 'warn' },
       requests: { max: 90, regression: 10 },
+      failedRequests: { max: 0, regression: 0 },
       thirdPartyBytes: { max: 300 * 1024, regression: 15, severity: 'warn' },
       thirdPartyRequests: { max: 20, regression: 20, severity: 'warn' },
       longTasks: { max: 10, regression: 20, severity: 'warn' },

@@ -21,6 +21,7 @@ const BASE_METRICS: AuditMetrics = {
   images: 100_000,
   total: 500_000,
   requests: 20,
+  failedRequests: 0,
   thirdPartyBytes: 10_000,
   thirdPartyRequests: 5,
   longTasks: 3,
@@ -161,6 +162,37 @@ describe('compareResult', () => {
     const lcp = check(compareResult(current, baseline, config()), 'lcp');
     expect(lcp.status).toBe('fail');
     expect(lcp.reason).toContain('regressed');
+  });
+
+  it('passes when failed requests stay at the inherited baseline', () => {
+    const baseline = withMetrics({ failedRequests: 2 });
+    const current = withMetrics({ failedRequests: 2 });
+    const failed = check(compareResult(current, baseline, config()), 'failedRequests');
+
+    expect(failed.label).toBe('Failed requests');
+    expect(failed.format).toBe('count');
+    expect(failed.severity).toBe('error');
+    expect(failed.status).toBe('pass');
+    expect(failed.reason).toContain('not a regression');
+  });
+
+  it('fails a failed request even when there is no baseline', () => {
+    const current = withMetrics({ failedRequests: 1 });
+    const failed = check(compareResult(current, null, config()), 'failedRequests');
+
+    expect(failed.status).toBe('fail');
+    expect(failed.reason).toContain('over max 0');
+  });
+
+  it('fails when a new failed request appears on top of inherited failures', () => {
+    const baseline = withMetrics({ failedRequests: 2 });
+    const current = withMetrics({ failedRequests: 3 });
+    const failed = check(compareResult(current, baseline, config()), 'failedRequests');
+
+    expect(failed.status).toBe('fail');
+    expect(failed.value).toBe(3);
+    expect(failed.baseline).toBe(2);
+    expect(failed.reason).toContain('regressed');
   });
 
   it('fails when a metric is over max and regressed', () => {
