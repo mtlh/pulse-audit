@@ -74,6 +74,7 @@ export const REQUIRED_PERFORMANCE_AUDITS: ReadonlySet<string> = new Set([
   'server-response-time',
   'network-requests',
   'lcp-breakdown-insight',
+  'long-tasks',
 ]);
 
 interface LighthouseConfigLike {

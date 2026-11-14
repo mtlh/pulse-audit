@@ -129,8 +129,8 @@ Acceptance:
 Goal: audit the pages teams actually ship, behind the auth they actually use, and make the
 failure land in the PR.
 
-1. **[~] More budgets:** `fcp`, `ttfb`, `css`, `fonts`, `total`, `thirdPartyBytes`,
-   `thirdPartyRequests` shipped in this tree. `longTasks` remains. Keep TBT; do **not** promise
+1. **[x] More budgets:** `fcp`, `ttfb`, `css`, `fonts`, `total`, `thirdPartyBytes`,
+   `thirdPartyRequests` and `longTasks` shipped. Keep TBT; do **not** promise
    INP from lab data (INP is field-only, so it is a documented non-goal).
 2. **[x] A11y impact gating.** Per-node impact and `maxNewByImpact` buckets shipped in
    this tree, and the violation key includes `failureSummary` with a v1-baseline fallback.

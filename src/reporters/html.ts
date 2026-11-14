@@ -14,6 +14,7 @@ import type {
   A11yViolation,
   ApiReportEntry,
   Check,
+  LongTaskDetail,
   PulseReport,
   ReportEntry,
   RequestSummary,
@@ -239,8 +240,55 @@ function renderVariance(entry: ReportEntry): string {
   </section>`;
 }
 
+/**
+ * Renders the longest main-thread tasks. Each row is scaled against the longest
+ * task, matching the request cards, so the relative cost is visible at a glance.
+ */
+function renderLongTasks(entry: ReportEntry): string {
+  const count = entry.audit.metrics.longTasks;
+  const tasks: LongTaskDetail[] = entry.audit.longTaskDetails ?? [];
+
+  if (tasks.length === 0) {
+    if (count <= 0) return '';
+    return `<section class="card"><h3>Long tasks</h3><p class="muted">${count} task${
+      count === 1 ? '' : 's'
+    } of 50ms or more; per-task detail was not captured.</p></section>`;
+  }
+
+  const max = Math.max(...tasks.map((task) => task.duration), 1);
+  const rows = tasks
+    .map((task) => {
+      const width = Math.max(2, Math.round((task.duration / max) * 100));
+      let label = 'Unattributed';
+      if (task.url) {
+        label = task.url;
+        try {
+          const parsed = new URL(task.url);
+          label = `${parsed.hostname}${parsed.pathname}`;
+        } catch {
+          // keep the raw url
+        }
+      }
+      return `<li class="req">
+        <div class="req-top">
+          <span class="req-url"${task.url ? ` title="${escapeHtml(task.url)}"` : ''}>${escapeHtml(
+            label,
+          )}</span>
+          <span class="req-meta">${escapeHtml(formatValue(task.duration, 'ms'))}</span>
+        </div>
+        <div class="bar"><span style="width:${width}%"></span></div>
+      </li>`;
+    })
+    .join('');
+
+  return `<section class="card">
+    <h3>Long tasks <span class="muted">${count} task${count === 1 ? '' : 's'} &ge; 50ms</span></h3>
+    <ul class="reqs">${rows}</ul>
+  </section>`;
+}
+
 function renderExtras(entry: ReportEntry): string {
-  const cards = [renderVariance(entry), renderThirdParty(entry)].filter(Boolean);
+  const cards = [renderVariance(entry), renderLongTasks(entry), renderThirdParty(entry)].filter(Boolean);
   if (cards.length === 0) return '';
   return `<div class="extras">${cards.join('')}</div>`;
 }

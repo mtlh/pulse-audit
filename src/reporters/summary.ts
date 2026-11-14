@@ -56,6 +56,15 @@ export function renderMarkdown(report: PulseReport): string {
       );
     }
 
+    const longTasks = entry.audit.metrics.longTasks;
+    if (longTasks > 0) {
+      const longest = entry.audit.longTaskDetails?.[0];
+      const detail = longest
+        ? ` · longest ${formatValue(longest.duration, 'ms')}${longest.url ? ` (${longest.url})` : ''}`
+        : '';
+      lines.push('', `- **Long tasks**: ${longTasks} ≥ 50ms${detail}`);
+    }
+
     lines.push('');
   }
 

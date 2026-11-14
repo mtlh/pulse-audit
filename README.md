@@ -188,9 +188,9 @@ are percentages (`10` or `"10%"`); CLS and counts are numbers.
   `maxNew` or `maxNewByImpact`. Inert rules are rejected at load time.
 
 Metrics: LCP, CLS, TBT, FCP, TTFB, JavaScript, CSS, fonts, images, total transfer weight,
-requests, third-party bytes, third-party requests, and accessibility violations. API results
-add TTFB, total duration, HTTP status and response body bytes. Each audit also stores one
-sample per measured run so the report can show min/median/max spread.
+requests, third-party bytes, third-party requests, long main-thread tasks, and accessibility
+violations. API results add TTFB, total duration, HTTP status and response body bytes. Each
+audit also stores one sample per measured run so the report can show min/median/max spread.
 
 ### UI and API tables
 

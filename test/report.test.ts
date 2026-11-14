@@ -31,6 +31,7 @@ const METRICS: AuditMetrics = {
   requests: 20,
   thirdPartyBytes: 10_000,
   thirdPartyRequests: 5,
+  longTasks: 2,
   violations: 0,
 };
 

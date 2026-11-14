@@ -11,6 +11,27 @@ function lhr(): Record<string, any> {
       'total-blocking-time': { numericValue: 320 },
       'first-contentful-paint': { numericValue: 1500 },
       'server-response-time': { numericValue: 210 },
+      'long-tasks': {
+        details: {
+          type: 'table',
+          items: [
+            { url: 'https://example.com/app.js', startTime: 100, duration: 300 },
+            { url: 'https://cdn.example.net/lib.js', startTime: 450, duration: 60 },
+            { url: 'https://example.com/app.js', startTime: 900, duration: 55 },
+            { url: 'https://example.com/app.js', startTime: 1100, duration: 49.9 },
+          ],
+          debugData: {
+            type: 'debugdata',
+            urls: ['https://example.com/app.js', 'https://cdn.example.net/lib.js'],
+            tasks: [
+              { urlIndex: 0, startTime: 100, duration: 300 },
+              { urlIndex: 1, startTime: 450, duration: 60 },
+              { urlIndex: 0, startTime: 900, duration: 55 },
+              { urlIndex: 0, startTime: 1100, duration: 49.9 },
+            ],
+          },
+        },
+      },
       'lcp-breakdown-insight': {
         details: {
           type: 'list',
@@ -146,6 +167,7 @@ describe('extractResult', () => {
       requests: 6,
       thirdPartyBytes: 16_000,
       thirdPartyRequests: 3,
+      longTasks: 3,
       violations: 4,
     });
     expect(result.lighthouseVersion).toBe('13.6.0');
@@ -254,11 +276,70 @@ describe('extractResult', () => {
       requests: 0,
       thirdPartyBytes: 0,
       thirdPartyRequests: 0,
+      longTasks: 0,
       violations: 0,
     });
     expect(result.heaviest).toEqual([]);
     expect(result.thirdPartyHeaviest).toEqual([]);
     expect(result.lcpElement).toBeUndefined();
+    expect(result.longTaskDetails).toBeUndefined();
+  });
+
+  it('counts long tasks from debugData and maps urlIndex to the attributed URL', () => {
+    const result = extractResult(lhr(), 'https://example.com/', 'mobile', 3);
+
+    expect(result.metrics.longTasks).toBe(3);
+    expect(result.longTaskDetails).toEqual([
+      { url: 'https://example.com/app.js', startTime: 100, duration: 300 },
+      { url: 'https://cdn.example.net/lib.js', startTime: 450, duration: 60 },
+      { url: 'https://example.com/app.js', startTime: 900, duration: 55 },
+    ]);
+  });
+
+  it('keeps only the five longest tasks in the detail list', () => {
+    const raw = lhr();
+    raw.audits['long-tasks'].details.debugData = {
+      urls: ['https://example.com/app.js'],
+      tasks: Array.from({ length: 7 }, (_, index) => ({
+        urlIndex: 0,
+        startTime: index * 100,
+        duration: 60 + index * 10,
+      })),
+    };
+
+    const result = extractResult(raw, 'https://example.com/', 'mobile', 1);
+    expect(result.metrics.longTasks).toBe(7);
+    expect(result.longTaskDetails?.map((task) => task.duration)).toEqual([120, 110, 100, 90, 80]);
+    expect(result.longTaskDetails?.every((task) => task.url === 'https://example.com/app.js')).toBe(true);
+  });
+
+  it('falls back to details.items and filters sub-50ms or malformed tasks', () => {
+    const raw = lhr();
+    delete raw.audits['long-tasks'].details.debugData;
+    raw.audits['long-tasks'].details.items = [
+      { url: 'https://example.com/late.js', startTime: 200, duration: 180 },
+      { url: 'https://example.com/short.js', startTime: 400, duration: 49 },
+      { url: 'https://example.com/string.js', startTime: 600, duration: '900' },
+    ];
+
+    const result = extractResult(raw, 'https://example.com/', 'mobile', 3);
+    expect(result.metrics.longTasks).toBe(1);
+    expect(result.longTaskDetails).toEqual([
+      { url: 'https://example.com/late.js', startTime: 200, duration: 180 },
+    ]);
+  });
+
+  it('reports no long tasks when the audit is absent or not applicable', () => {
+    const raw = lhr();
+    raw.audits['long-tasks'] = { scoreDisplayMode: 'notApplicable', details: { items: [] } };
+
+    const notApplicable = extractResult(raw, 'https://example.com/', 'mobile', 1);
+    expect(notApplicable.metrics.longTasks).toBe(0);
+    expect(notApplicable.longTaskDetails).toBeUndefined();
+
+    const missing = extractResult({}, 'https://example.com/', 'mobile', 1);
+    expect(missing.metrics.longTasks).toBe(0);
+    expect(missing.longTaskDetails).toBeUndefined();
   });
 
   it('falls back to origin comparison when thirdParty is absent', () => {

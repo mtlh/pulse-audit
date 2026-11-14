@@ -26,6 +26,7 @@ const BASE_METRICS: AuditMetrics = {
   requests: 12,
   thirdPartyBytes: 5120,
   thirdPartyRequests: 2,
+  longTasks: 2,
   violations: 3,
 };
 
@@ -75,6 +76,10 @@ function audit(overrides: Partial<AuditResult> = {}): AuditResult {
         bytes: 2048,
         thirdParty: true,
       },
+    ],
+    longTaskDetails: [
+      { url: `https://example.com/${evil}`, startTime: 900, duration: 320 },
+      { startTime: 1200, duration: 140 },
     ],
     violations: [
       {
@@ -267,6 +272,31 @@ describe('renderHtml', () => {
     const html = renderHtml(report());
 
     expect(html).toContain('3 nodes · 2 critical · 1 serious');
+  });
+
+  it('renders a long tasks card with duration and attributed URL', () => {
+    const html = renderHtml(report());
+
+    expect(html).toContain('Long tasks <span class="muted">2 tasks &ge; 50ms</span>');
+    expect(html).toContain('320ms');
+    expect(html).toContain('140ms');
+    expect(html).toContain('Unattributed');
+    expect(html).toContain('cdn.example.com'); // unaffected request card
+    expect(html).not.toContain('<script>window.pwned');
+  });
+
+  it('omits the long tasks card when the page has none', () => {
+    const none = audit({ metrics: metrics({ longTasks: 0 }), longTaskDetails: undefined });
+    const html = renderHtml(report({ results: [entry({ audit: none })] }));
+
+    expect(html).not.toContain('Long tasks');
+  });
+
+  it('explains a long-task count with no per-task detail', () => {
+    const countOnly = audit({ metrics: metrics({ longTasks: 3 }), longTaskDetails: [] });
+    const html = renderHtml(report({ results: [entry({ audit: countOnly })] }));
+
+    expect(html).toContain('3 tasks of 50ms or more');
   });
 
   it('counts unique nodes the same way the gate does', () => {

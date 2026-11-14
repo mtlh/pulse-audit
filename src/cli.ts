@@ -186,6 +186,7 @@ program
           max: budgets.thirdPartyRequests?.max,
           format: 'count',
         },
+        { label: 'Long tasks', value: metrics.longTasks, max: budgets.longTasks?.max, format: 'count' },
         { label: 'A11y nodes', value: metrics.violations, max: budgets.a11y?.maxViolations, format: 'count' },
       ];
 

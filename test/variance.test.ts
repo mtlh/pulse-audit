@@ -17,6 +17,7 @@ function metrics(overrides: Partial<AuditMetrics> = {}): AuditMetrics {
     requests: 0,
     thirdPartyBytes: 0,
     thirdPartyRequests: 0,
+    longTasks: 0,
     violations: 0,
     ...overrides,
   };
@@ -62,19 +63,20 @@ describe('metricStat', () => {
 describe('metricSpreads', () => {
   it('computes a stat for every numeric metric key', () => {
     const samples = [
-      metrics({ lcp: 1000, tbt: 100, violations: 1 }),
-      metrics({ lcp: 2000, tbt: 200, violations: 2 }),
-      metrics({ lcp: 3000, tbt: 300, violations: 3 }),
+      metrics({ lcp: 1000, tbt: 100, longTasks: 1, violations: 1 }),
+      metrics({ lcp: 2000, tbt: 200, longTasks: 2, violations: 2 }),
+      metrics({ lcp: 3000, tbt: 300, longTasks: 3, violations: 3 }),
     ];
 
     const spreads = metricSpreads(samples);
 
-    expect(AUDIT_METRIC_KEYS).toHaveLength(14);
+    expect(AUDIT_METRIC_KEYS).toHaveLength(15);
     for (const key of AUDIT_METRIC_KEYS) {
       expect(spreads[key]).toBeDefined();
     }
     expect(spreads.lcp).toEqual({ min: 1000, median: 2000, max: 3000, spreadPct: 100 });
     expect(spreads.tbt).toEqual({ min: 100, median: 200, max: 300, spreadPct: 100 });
+    expect(spreads.longTasks).toEqual({ min: 1, median: 2, max: 3, spreadPct: 100 });
     expect(spreads.violations).toEqual({ min: 1, median: 2, max: 3, spreadPct: 100 });
     expect(spreads.js).toEqual({ min: 0, median: 0, max: 0, spreadPct: 0 });
   });

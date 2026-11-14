@@ -28,6 +28,7 @@ function metrics(overrides: Partial<AuditMetrics> = {}): AuditMetrics {
     requests: 3,
     thirdPartyBytes: 0,
     thirdPartyRequests: 0,
+    longTasks: 0,
     violations: 2,
     ...overrides,
   };

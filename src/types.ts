@@ -66,6 +66,7 @@ export interface BudgetSet {
   requests?: BudgetRule;
   thirdPartyBytes?: BudgetRule;
   thirdPartyRequests?: BudgetRule;
+  longTasks?: BudgetRule;
   a11y?: A11yBudget;
 }
 
@@ -158,6 +159,13 @@ export interface LcpElement {
   snippet?: string;
 }
 
+export interface LongTaskDetail {
+  /** Script URL the task was attributed to, when Lighthouse could resolve one. */
+  url?: string;
+  startTime: number;
+  duration: number;
+}
+
 export interface AuditMetrics {
   lcp: number;
   cls: number;
@@ -172,6 +180,8 @@ export interface AuditMetrics {
   requests: number;
   thirdPartyBytes: number;
   thirdPartyRequests: number;
+  /** Main-thread tasks of at least 50 ms. */
+  longTasks: number;
   violations: number;
 }
 
@@ -190,6 +200,8 @@ export interface AuditResult {
   samples?: AuditMetrics[];
   /** Top 10 third-party requests by bytes. */
   thirdPartyHeaviest?: RequestSummary[];
+  /** Top 5 long tasks by duration. */
+  longTaskDetails?: LongTaskDetail[];
 }
 
 export interface ApiMetrics {
