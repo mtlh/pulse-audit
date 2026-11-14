@@ -77,6 +77,35 @@ LCP element resolved through the Lighthouse 13 `lcp-breakdown-insight` shape).
 
 ---
 
+## Packaging - Lighthouse is vendored
+
+The `perf/reduce-install-size` work moves Lighthouse into `dist/` so an install
+no longer unpacks it. The published runtime dependencies are only
+`puppeteer-core` and `zod`; `commander`, `picocolors`, `chrome-launcher` and
+Lighthouse are bundled. A clean production install dropped from 163.1 MB / 110
+packages to 47.1 MB / 24 packages, and a warm-cache install from 10.3 s to
+4.3 s. The packed tarball grew from 0.1 MB to 3.3 MB because the code now lives
+in the package; the total user download still fell by roughly 70%.
+
+- `src/lighthouse.ts` is the only Lighthouse import and is loaded lazily.
+  `src/lighthouse-version.ts` gives `doctor` the version without the runtime.
+- `scripts/lighthouse-build.mjs` is an esbuild plugin that fills Lighthouse's
+  own bundling seams (dynamic audit/gatherer map, audit lists, locales, axe and
+  js-library-detector sources, report assets, bundled-environment probe). It
+  fails the build if a release moves a seam. Do not hand-edit `node_modules`.
+- `@sentry/node` is external and not installed: Lighthouse only imports it when
+  its error-reporting flag is on, which Pulse never enables.
+- `dist/THIRD_PARTY_NOTICES.txt` is generated from the esbuild metafile.
+- `npm run size:report` reproduces the package, install, startup and fixture
+  audit numbers. `docs/packaging.md` has the before/after table, verification
+  commands, the per-platform binary rejection and the upgrade procedure.
+
+When upgrading Lighthouse, bump it as a **devDependency**, run `npm run build`,
+`npm run test:e2e` and `npm run size:report`, and compare the fixture metrics.
+If the plugin reports a moved seam or the fixture numbers change, stop.
+
+---
+
 ## v0.2.0 release - "trustworthy gate"
 
 The v0.2 scope from `docs/roadmap.md` shipped as `0.2.0`: it was merged in PR #1 on top of
@@ -471,6 +500,8 @@ from 'chrome-launcher'`.
 
 - The package is published as `@mtlh/pulse-audit`; the binary is `pulse`. Consumers should run
   `npx @mtlh/pulse-audit@0.2.1 ...`.
+- Lighthouse is a **devDependency**: it is bundled into `dist/` by `npm run build`. Do not move it
+  back to runtime dependencies, and do not publish without a build. See `docs/packaging.md`.
 - `.github/workflows/release.yml` publishes from `main` only when `package.json` has a version
   not already on npm, waits for registry propagation, then tags and creates a GitHub release.
   It requires the `NPM_TOKEN` repository secret (or trusted publishing configured on npm).

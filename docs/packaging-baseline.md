@@ -1,31 +1,31 @@
-# Baseline - @mtlh/pulse-audit 0.2.1
+# Baseline - origin/main (489c18a), unbundled
 
-Measured 2026-11-14T16:18:49.765Z on Node 24.12.0 (win32 x64) against `@mtlh/pulse-audit@0.2.1` with Lighthouse 13.6.0.
+Measured 2026-11-14T18:20:00.970Z on Node 24.12.0 (win32 x64) against `@mtlh/pulse-audit@0.2.1` with Lighthouse 13.6.0.
 
 ## Package and install
 
 | Metric                   | Value                        |
 | ------------------------ | ---------------------------- |
-| npm pack tarball         | 0.1 MB (69 files)            |
-| Unpacked package         | 0.4 MB                       |
-| Clean production install | 162.9 MB across 110 packages |
-| Clean install time       | 15.94 s (warm npm cache)     |
+| npm pack tarball         | 0.1 MB (76 files)            |
+| Unpacked package         | 0.5 MB                       |
+| Clean production install | 163.1 MB across 110 packages |
+| Clean install time       | 10.31 s (warm npm cache)     |
 
 ## dist
 
 | Metric          | Value             |
 | --------------- | ----------------- |
-| dist total      | 0.4 MB (66 files) |
-| dist JavaScript | 0.1 MB (32 files) |
-| dist sourcemaps | 0.2 MB (32 files) |
+| dist total      | 0.5 MB (73 files) |
+| dist JavaScript | 0.2 MB (35 files) |
+| dist sourcemaps | 0.3 MB (35 files) |
 
 ## Startup and audit
 
 | Command                          | Median (min)    | Modules loaded                         |
 | -------------------------------- | --------------- | -------------------------------------- |
-| `pulse --version`                | 103 ms (93 ms)  | 10 module files (10 in node_modules)   |
-| `pulse doctor --skip-network`    | 310 ms (272 ms) | not traced                             |
-| `pulse audit --runs 1` (fixture) | 7.86 s          | 829 module files (897 in node_modules) |
+| `pulse --version`                | 83 ms (81 ms)   | 10 module files (10 in node_modules)   |
+| `pulse doctor --skip-network`    | 265 ms (261 ms) | not traced                             |
+| `pulse audit --runs 1` (fixture) | 6.79 s          | 831 module files (899 in node_modules) |
 
 ## Largest production packages
 
@@ -51,10 +51,10 @@ Measured 2026-11-14T16:18:49.765Z on Node 24.12.0 (win32 x64) against `@mtlh/pul
 
 | Metric                    | Value   |
 | ------------------------- | ------- |
-| lcp                       | 2401.22 |
+| lcp                       | 2401.16 |
 | cls                       | 0.07    |
 | tbt                       | 0       |
-| fcp                       | 1801.22 |
+| fcp                       | 1801.16 |
 | ttfb                      | 0       |
 | js                        | 225526  |
 | css                       | 0       |
@@ -62,8 +62,12 @@ Measured 2026-11-14T16:18:49.765Z on Node 24.12.0 (win32 x64) against `@mtlh/pul
 | images                    | 164654  |
 | total                     | 391925  |
 | requests                  | 4       |
+| failedRequests            | 0       |
 | thirdPartyBytes           | 0       |
 | thirdPartyRequests        | 0       |
+| longTasks                 | 0       |
+| thirdPartyMainThread      | 0       |
+| consoleErrors             | 0       |
 | violations                | 3       |
 | a11y violations           | 2       |
 | Lighthouse version in LHR | 13.6.0  |
