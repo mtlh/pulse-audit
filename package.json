@@ -53,7 +53,7 @@
     "bench": "node scripts/bench.mjs",
     "test:watch": "vitest",
     "size:report": "node scripts/size-report.mjs",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "node ./node_modules/@typescript/native/bin/tsc --noEmit",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "format": "prettier --write .",
@@ -61,13 +61,14 @@
     "prepublishOnly": "npm run build"
   },
   "dependencies": {
-    "puppeteer-core": "^25.16.0",
+    "puppeteer-core": "^25.18.1",
     "zod": "^4.6.7"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "@types/node": "^26.6.6",
-    "axe-core": "4.14.0",
+    "@typescript/native": "npm:typescript@^7.0.2",
+    "axe-core": "4.14.1",
     "chrome-launcher": "^1.2.3",
     "commander": "^15.1.0",
     "eslint": "^10.15.0",
@@ -76,11 +77,11 @@
     "globals": "^17.14.0",
     "lighthouse": "^13.6.0",
     "picocolors": "^1.1.1",
-    "prettier": "^3.9.10",
+    "prettier": "^3.10.1",
     "tsup": "^9.0.0",
     "tsx": "^4.23.15",
-    "typescript": "^6.0.3",
-    "typescript-eslint": "^8.72.2",
-    "vitest": "^5.1.0"
+    "typescript": "npm:@typescript/typescript6@6.0.2",
+    "typescript-eslint": "^8.73.0",
+    "vitest": "^5.1.1"
   }
 }
