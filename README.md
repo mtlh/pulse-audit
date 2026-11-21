@@ -432,6 +432,12 @@ correctness rules: no floating promises, no unsafe `any` flow, exhaustive switch
 cycles, atomic async updates and promise-rejection errors. CI runs the same `npm run lint`
 gate as the build and test jobs.
 
+`npm run typecheck` runs TypeScript 7's native `tsc` from `@typescript/native` directly. The
+`typescript` name stays on the 6.x compatibility release because `typescript-eslint` and
+tsup's declaration build still import the compiler API, which TypeScript 7.0 does not ship.
+The explicit binary path keeps the check on 7 even when the 6.x API package also exposes a
+`tsc` bin.
+
 The E2E suite uses a deterministic local fixture (`test/flows/fixture.ts`) with a slow hero
 image, injected layout shift, missing alt text and a 220 KB script. Chrome is required;
 `npm test` skips those flows when `PULSE_E2E` is not set. `npm run test:e2e` also covers
