@@ -31,7 +31,7 @@ function metricBudgetSchema(parseMax: UnitParser) {
     })
     .strict()
     .refine((rule) => rule.max !== undefined || rule.regression !== undefined, {
-      message: 'A budget rule must set max or regression.',
+      error: 'A budget rule must set max or regression.',
     });
 }
 
@@ -61,7 +61,7 @@ const a11yBudgetSchema = z
       rule.maxNew !== undefined ||
       (rule.maxNewByImpact !== undefined && Object.keys(rule.maxNewByImpact).length > 0),
     {
-      message: 'An accessibility budget must set maxViolations, maxNew or maxNewByImpact.',
+      error: 'An accessibility budget must set maxViolations, maxNew or maxNewByImpact.',
     },
   );
 
@@ -79,7 +79,7 @@ const budgetsSchema = z
   .strict() as unknown as z.ZodType<BudgetSet>;
 
 const auditUrlSchema = z.url().refine((value) => /^https?:\/\//i.test(value), {
-  message: 'URL must start with http:// or https://',
+  error: 'URL must start with http:// or https://',
 });
 
 const authSchema = z.discriminatedUnion('type', [
@@ -141,7 +141,7 @@ const apiTargetSchema = z
       const method = target.method ?? 'GET';
       return target.body === undefined || (method !== 'GET' && method !== 'HEAD');
     },
-    { message: 'GET and HEAD API targets cannot set a request body.', path: ['body'] },
+    { error: 'GET and HEAD API targets cannot set a request body.', path: ['body'] },
   );
 
 const pageTargetSchema = z
@@ -176,7 +176,7 @@ export const configSchema = z
   })
   .strict()
   .refine((config) => config.urls.length > 0 || config.api.length > 0, {
-    message: 'Set at least one page URL or API endpoint.',
+    error: 'Set at least one page URL or API endpoint.',
     path: ['urls'],
   });
 
